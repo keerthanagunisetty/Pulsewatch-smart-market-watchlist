@@ -1,0 +1,1637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PulseBed - Hospital Bed Availability Tracker</title>
+  <meta name="description" content="Real-time cloud hospital bed availability management dashboard powered by Firebase Firestore." />
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app" class="app-layout">
+    <!-- Mobile Header Bar -->
+    <header class="mobile-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49 0 2.87.47 4 1.26V8c0-1.1-.9-2-2-2H3c-1.1 0-2 .9-2 2v14h2v-4h11.26c-.79-1.13-1.26-2.51-1.26-4zm-8-3H9v2H7v-2H5V9h2V7h2v2h2v2z"/><circle cx="19" cy="14" r="4"/><path d="M19 12v4M17 14h4"/></svg>
+        </div>
+        <span class="brand-name">PulseBed</span>
+      </div>
+      <button id="mobileMenuBtn" class="icon-btn" aria-label="Toggle menu">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+      </button>
+    </header>
+
+    <!-- Sidebar Navigation -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49 0 2.87.47 4 1.26V8c0-1.1-.9-2-2-2H3c-1.1 0-2 .9-2 2v14h2v-4h11.26c-.79-1.13-1.26-2.51-1.26-4zm-8-3H9v2H7v-2H5V9h2V7h2v2h2v2z"/><circle cx="19" cy="14" r="4"/><path d="M19 12v4M17 14h4"/></svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">PulseBed</span>
+          <span class="brand-subtitle">Cloud Bed Tracker</span>
+        </div>
+      </div>
+
+        <ul>
+          <!-- ================= ADMIN / STAFF ITEMS ================= -->
+          <p class="sidebar-nav-section-label admin-item">Overview</p>
+          <li class="admin-item">
+            <a href="#dashboard" class="nav-link active" data-section="dashboard">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v9H3zM14 3h7v5-7zM14 12h7v9h-7zM3 16h7v5H3z"/></svg>
+              <span>Dashboard</span>
+            </a>
+          </li>
+          <li class="admin-item">
+            <a href="#hospitals" class="nav-link" data-section="hospitals">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/><path d="M9 10h1m4 0h1M9 14h1m4 0h1"/></svg>
+              <span>Hospitals</span>
+            </a>
+          </li>
+          <li class="admin-item">
+            <a href="#rooms-beds" class="nav-link" data-section="rooms-beds">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9"/></svg>
+              <span>Rooms &amp; Beds</span>
+            </a>
+          </li>
+
+          <p class="sidebar-nav-section-label admin-item">Patient Management</p>
+          <li class="admin-item">
+            <a href="#patient-admissions" class="nav-link" data-section="patient-admissions">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <span>Admissions</span>
+            </a>
+          </li>
+          <li class="admin-item">
+            <a href="#book-bed" class="nav-link" data-section="book-bed">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+              <span>Book Bed</span>
+            </a>
+          </li>
+          <li class="admin-item">
+            <a href="#admin/bookings" class="nav-link" data-section="admin/bookings">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="12 2 12 8 20 8"/></svg>
+              <span>User Bookings</span>
+            </a>
+          </li>
+
+          <p class="sidebar-nav-section-label admin-item">Analytics</p>
+          <li class="admin-item">
+            <a href="#reports" class="nav-link" data-section="reports">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              <span>Reports</span>
+            </a>
+          </li>
+
+          <p class="sidebar-nav-section-label admin-item">Management</p>
+          <li class="admin-item">
+            <a href="#add-hospital" class="nav-link" data-section="add-hospital">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
+              <span>Add Hospital</span>
+            </a>
+          </li>
+
+          <!-- ================= PATIENT / USER ITEMS ================= -->
+          <p class="sidebar-nav-section-label user-item">Patient Portal</p>
+          <li class="user-item">
+            <a href="#user-dashboard" class="nav-link" data-section="user-dashboard">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              <span>Find Bed</span>
+            </a>
+          </li>
+          <li class="user-item">
+            <a href="#user-available-beds" class="nav-link" data-section="user-available-beds">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9"/></svg>
+              <span>Available Beds</span>
+            </a>
+          </li>
+          <li class="user-item">
+            <a href="#user-my-bookings" class="nav-link" data-section="user-my-bookings">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              <span>My Bookings</span>
+            </a>
+          </li>
+
+          <!-- ================= COMMON SYSTEM ITEMS ================= -->
+          <p class="sidebar-nav-section-label">System</p>
+          <li>
+            <a href="#about" class="nav-link" data-section="about">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              <span>Settings / Info</span>
+            </a>
+          </li>
+        </ul>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="cloud-status-box">
+          <div class="status-indicator online" id="syncStatusDot"></div>
+          <div class="status-info">
+            <span class="status-label" id="syncStatusText">Firestore Sync</span>
+            <span class="status-mode" id="storageModeBadge">Cloud Mode</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
+    <!-- Main Content Area -->
+    <div id="mainLayout">
+    <main class="main-wrapper">
+      <!-- Top Header -->
+      <header id="appHeader" class="top-header">
+        <div class="d-flex items-center gap-2">
+          <button id="collapseSidebarBtn" class="sidebar-collapse-btn" aria-label="Toggle sidebar menu layout">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          <div class="header-left">
+            <h1 id="pageTitle" class="page-title">Dashboard Overview</h1>
+            <p id="pageSubTitle" class="page-subtitle">Real-time hospital bed allocation across departments</p>
+          </div>
+        </div>
+
+        <div class="header-right">
+          <!-- Live Ticking Clock -->
+          <div class="live-clock mr-2">
+            <span id="headerClockTime" class="clock-time">12:00:00 AM</span>
+            <span id="headerClockDate" class="clock-date">SATURDAY, 15 AUGUST 2026</span>
+          </div>
+
+          <!-- Legacy date span hidden but kept for script compatibility if needed -->
+          <span id="currentDate" class="hidden"></span>
+
+          <!-- Notification Bell Dropdown -->
+          <div class="notification-container">
+            <button id="notificationBtn" class="notification-bell-btn" aria-label="View system notifications">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+              <span class="bell-badge"></span>
+            </button>
+            <div id="notificationDropdown" class="notification-dropdown">
+              <div class="dropdown-header">
+                <h4>System Notifications</h4>
+                <span class="badge badge-subtle" id="notificationCount">4 Alerts</span>
+              </div>
+              <div class="dropdown-list" id="notificationList">
+                <!-- Notifications populated dynamically in main.js -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Indicator Badge -->
+          <div class="live-pill" id="liveSyncStatusPill">
+            <span class="pulse-dot"></span>
+            <span>Live Sync</span>
+          </div>
+
+          <!-- Auth Actions / User Profile -->
+          <div class="user-auth-area">
+            <div id="userProfile" class="user-profile hidden">
+              <div class="avatar" id="userAvatar">A</div>
+              <div class="user-info">
+                <span class="user-email" id="userEmail">admin@hospital.org</span>
+                <span class="user-role badge-admin">Authenticated</span>
+              </div>
+              <button id="logoutBtn" class="btn btn-outline-danger btn-xs" title="Log Out" style="margin-left: 0.5rem; padding: 0.25rem 0.5rem;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+              </button>
+            </div>
+
+            <div id="guestProfile" class="guest-profile">
+              <span class="public-view-badge">Public (Read Only)</span>
+              <button id="openLoginBtn" class="btn btn-primary btn-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+                <span>Admin Login</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Content Container -->
+      <div class="content-container">
+
+        <!-- ================= SECTION: LANDING / ROLE SELECTION ================= -->
+        <section id="section-landing" class="content-section">
+          <div class="landing-wrapper">
+            <div class="auth-panel-card" style="max-width: 440px; border-top: 3px solid var(--primary); text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.12);">
+              <div class="landing-logo" style="width: 60px; height: 60px; margin: 0 auto 1rem; color: var(--primary);">
+                <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49 0 2.87.47 4 1.26V8c0-1.1-.9-2-2-2H3c-1.1 0-2 .9-2 2v14h2v-4h11.26c-.79-1.13-1.26-2.51-1.26-4zm-8-3H9v2H7v-2H5V9h2V7h2v2h2v2z"/><circle cx="19" cy="14" r="4"/><path d="M19 12v4M17 14h4"/></svg>
+              </div>
+              <div class="form-title-group" style="margin-bottom: 2rem;">
+                <h2 style="font-size: 1.8rem; font-weight: 800; margin: 0;">Pulse<span>Bed</span></h2>
+                <p style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.4rem;">Smart Hospital Bed Management Platform</p>
+              </div>
+              
+              <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1.5rem;">
+                <button class="btn btn-primary w-full py-3" id="goToUserLoginBtn" style="font-size: 0.95rem; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.5rem; height: 50px; cursor: pointer;">
+                  👤 Patient / User Login
+                </button>
+                
+                <button class="btn btn-outline w-full py-3" id="goToAdminLoginBtn" style="font-size: 0.95rem; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.5rem; height: 50px; border-color: #a855f7; color: #7e22ce; cursor: pointer;">
+                  🏥 Hospital Staff / Admin Login
+                </button>
+              </div>
+              
+              <div style="margin-top: 2rem; display: flex; flex-direction: column; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--text-muted);">
+                <span>Secure real-time cloud data engine active</span>
+                <a href="#" id="landingConfigLink" style="color: var(--primary); text-decoration: underline; cursor: pointer; font-weight: 600; margin-top: 0.25rem;">⚙️ Configure Firebase Backend</a>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= SECTION: ADMIN LOGIN ================= -->
+        <section id="section-admin-login" class="content-section">
+          <div class="auth-panel-wrapper">
+            <div class="auth-panel-card admin-theme">
+              <div class="form-title-group">
+                <h2>PulseBed</h2>
+                <p>Admin Portal</p>
+              </div>
+              <form id="adminLoginForm">
+                <div class="form-group mb-3">
+                  <label for="adminEmail">Clinician Email</label>
+                  <input type="email" id="adminEmail" class="form-control" placeholder="admin@hospital.org" required />
+                  <div class="error-feedback" id="err-adminEmail"></div>
+                </div>
+                <div class="form-group mb-3">
+                  <label for="adminPassword">Password</label>
+                  <div class="password-input-wrapper">
+                    <input type="password" id="adminPassword" class="form-control" placeholder="••••••••" required style="padding-right: 2.5rem;" />
+                    <button type="button" class="password-toggle-btn" id="toggleAdminPasswordBtn">
+                      <svg id="eyeOpenIconAdmin" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      <svg id="eyeClosedIconAdmin" class="hidden" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                  </div>
+                  <div class="error-feedback" id="err-adminPassword"></div>
+                </div>
+
+                <div id="adminLoginError" class="alert alert-danger hidden"></div>
+
+                <button type="submit" class="btn btn-primary w-full mt-2" style="background: linear-gradient(135deg, #a855f7, #7e22ce); box-shadow: 0 2px 8px rgba(168,85,247,0.3);">
+                  SIGN IN AS ADMIN
+                </button>
+
+                <button type="button" id="fillAdminDemoBtn" class="btn btn-outline w-full mt-2" style="border-style: dashed; font-size: 0.8rem; height: 36px; padding: 0; cursor: pointer;">
+                  ⚡ Use Admin Demo Credentials (admin@hospital.org)
+                </button>
+
+                <div style="margin-top: 1.5rem; text-align: center; font-size: 0.85rem;">
+                  <a href="#landing" class="text-sm">← Back to Role Selection</a>
+                </div>
+
+                <div class="security-badge-box">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                  <span>Authorized hospital personnel only</span>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= SECTION: USER LOGIN ================= -->
+        <section id="section-user-login" class="content-section">
+          <div class="auth-panel-wrapper">
+            <div class="auth-panel-card">
+              <div class="form-title-group">
+                <h2>PulseBed</h2>
+                <p>Patient Portal</p>
+              </div>
+              <form id="userLoginForm">
+                 <div class="form-group mb-3">
+                  <label for="userLoginEmail">Email Address</label>
+                  <input type="email" id="userLoginEmail" class="form-control" placeholder="patient@example.com" required />
+                  <div class="error-feedback" id="err-userEmailInput"></div>
+                </div>
+                <div class="form-group mb-3">
+                  <label for="userLoginPassword">Password</label>
+                  <div class="password-input-wrapper">
+                    <input type="password" id="userLoginPassword" class="form-control" placeholder="••••••••" required style="padding-right: 2.5rem;" />
+                    <button type="button" class="password-toggle-btn" id="toggleUserPasswordBtn">
+                      <svg id="eyeOpenIconUser" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      <svg id="eyeClosedIconUser" class="hidden" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                  </div>
+                  <div class="error-feedback" id="err-userPasswordInput"></div>
+                </div>
+
+                <div id="userLoginError" class="alert alert-danger hidden"></div>
+
+                <button type="submit" class="btn btn-primary w-full mt-2">
+                  SIGN IN
+                </button>
+
+                <button type="button" id="fillPatientDemoBtn" class="btn btn-outline w-full mt-2" style="border-style: dashed; font-size: 0.8rem; height: 36px; padding: 0; cursor: pointer;">
+                  ⚡ Use Patient Demo Credentials (patient@example.com)
+                </button>
+
+                <div style="margin-top: 1.25rem; display: flex; justify-content: space-between; font-size: 0.85rem;">
+                  <a href="#register" style="color: var(--primary); font-weight: 600;">Create Account</a>
+                  <a href="#admin-login">Are you hospital staff?</a>
+                </div>
+
+                <div style="margin-top: 1.5rem; text-align: center; font-size: 0.85rem;">
+                  <a href="#landing" class="text-sm">← Back to Role Selection</a>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= SECTION: USER REGISTRATION ================= -->
+        <section id="section-register" class="content-section">
+          <div class="auth-panel-wrapper" style="max-width: 480px;">
+            <div class="auth-panel-card">
+              <div class="form-title-group">
+                <h2>Create Account</h2>
+                <p>Register as a new patient/user</p>
+              </div>
+              <form id="registerForm">
+                <div class="form-group mb-2">
+                  <label for="regName">Full Name <span class="req">*</span></label>
+                  <input type="text" id="regName" class="form-control" placeholder="John Doe" required />
+                  <div class="error-feedback" id="err-regName"></div>
+                </div>
+                <div class="form-group mb-2">
+                  <label for="regEmail">Email Address <span class="req">*</span></label>
+                  <input type="email" id="regEmail" class="form-control" placeholder="john.doe@example.com" required />
+                  <div class="error-feedback" id="err-regEmail"></div>
+                </div>
+                <div class="form-group mb-2">
+                  <label for="regPhone">Phone Number <span class="req">*</span></label>
+                  <input type="tel" id="regPhone" class="form-control" placeholder="+91 9876543210" required />
+                  <div class="error-feedback" id="err-regPhone"></div>
+                </div>
+                <div class="form-group mb-2">
+                  <label for="regPassword">Password <span class="req">*</span></label>
+                  <input type="password" id="regPassword" class="form-control" placeholder="Min 6 characters" required />
+                  <div class="error-feedback" id="err-regPassword"></div>
+                </div>
+                <div class="form-group mb-3">
+                  <label for="regConfirmPassword">Confirm Password <span class="req">*</span></label>
+                  <input type="password" id="regConfirmPassword" class="form-control" placeholder="Re-enter password" required />
+                  <div class="error-feedback" id="err-regConfirmPassword"></div>
+                </div>
+
+                <div id="registerError" class="alert alert-danger hidden"></div>
+
+                <button type="submit" class="btn btn-primary w-full">
+                  CREATE ACCOUNT
+                </button>
+
+                <div style="margin-top: 1.5rem; text-align: center; font-size: 0.85rem;">
+                  Already have an account? <a href="#user-login">Sign In</a>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= SECTION: USER / PATIENT DASHBOARD ================= -->
+        <section id="section-user-dashboard" class="content-section">
+          <div class="user-welcome-header">
+            <h2 id="userWelcomeText">Welcome, Patient</h2>
+            <p>Find and request available hospital beds across cities in real-time.</p>
+          </div>
+
+          <div class="control-bar-card mb-4">
+            <div class="filter-box d-flex items-center gap-2">
+              <div class="flex-grow">
+                <label for="userSearchInput" class="text-xs font-semibold text-muted uppercase">🔎 Search Hospitals</label>
+                <input type="text" id="userSearchInput" class="form-control mt-1" placeholder="Search by name or location..." />
+              </div>
+              <div>
+                <label for="userLocationFilter" class="text-xs font-semibold text-muted uppercase">Location</label>
+                <select id="userLocationFilter" class="form-select mt-1">
+                  <option value="All">All Locations</option>
+                  <!-- Populated dynamically -->
+                </select>
+              </div>
+              <div>
+                <label for="userDepartmentFilter" class="text-xs font-semibold text-muted uppercase">Department</label>
+                <select id="userDepartmentFilter" class="form-select mt-1">
+                  <option value="All">All Departments</option>
+                  <option value="ICU">ICU</option>
+                  <option value="General Ward">General Ward</option>
+                  <option value="Emergency">Emergency</option>
+                  <option value="Maternity">Maternity</option>
+                  <option value="Pediatrics">Pediatrics</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div id="userHospitalGrid" class="hospital-cards-grid">
+            <!-- Populated dynamically -->
+          </div>
+        </section>
+
+        <!-- ================= SECTION: USER / PATIENT AVAILABLE BEDS ================= -->
+        <section id="section-user-available-beds" class="content-section">
+          <div class="control-bar-card mb-4">
+            <div class="filter-box d-flex items-center gap-2">
+              <div>
+                <label for="userHospSelect" class="text-xs font-semibold text-muted uppercase">Hospital</label>
+                <select id="userHospSelect" class="form-select mt-1">
+                  <!-- Populated dynamically -->
+                </select>
+              </div>
+              <div>
+                <label for="userBedRoomTypeFilter" class="text-xs font-semibold text-muted uppercase">Room Type</label>
+                <select id="userBedRoomTypeFilter" class="form-select mt-1">
+                  <option value="All">All Room Types</option>
+                  <option value="General Ward">General Ward</option>
+                  <option value="Semi-Private">Semi-Private</option>
+                  <option value="Private Room">Private Room</option>
+                  <option value="ICU">ICU</option>
+                  <option value="Emergency">Emergency</option>
+                </select>
+              </div>
+              <div class="actions-box align-self-end mt-1">
+                <span class="legend-item"><span class="legend-color-dot available"></span> Available Beds only</span>
+              </div>
+            </div>
+          </div>
+
+          <div id="userBedsContainer" class="hospital-cards-grid">
+            <!-- Bed Cards populated dynamically -->
+          </div>
+        </section>
+
+        <!-- ================= SECTION: USER MY BOOKINGS ================= -->
+        <section id="section-user-my-bookings" class="content-section">
+          <div class="section-card">
+            <div class="table-meta-bar mb-3">
+              <span class="records-count">My Admission Requests</span>
+              <span class="formula-hint">Shows current status of your bed bookings</span>
+            </div>
+            <div id="userMyBookingsContainer" class="my-bookings-grid">
+              <!-- Cards populated dynamically -->
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= SECTION: ADMIN BOOKINGS MANAGEMENT ================= -->
+        <section id="section-admin-bookings" class="content-section">
+          <div class="section-card">
+            <div class="table-meta-bar mb-3">
+              <span class="records-count">User Bed Requests (Admin Portal)</span>
+              <span class="formula-hint">Process patient booking approvals & discharges</span>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Patient Details</th>
+                    <th>Hospital &amp; Room</th>
+                    <th>Dates</th>
+                    <th>Billing Summary</th>
+                    <th>Status</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="adminBookingsTableBody">
+                  <!-- Populated dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= SECTION 1: DASHBOARD ================= -->
+        <section id="section-dashboard" class="content-section active">
+          <!-- Summary Cards Grid with Sparklines -->
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Total Hospitals</span>
+                <div class="metric-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"></path><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"></path></svg></div>
+              </div>
+              <div class="metric-val-wrapper d-flex justify-between items-center">
+                <span id="metricTotalHospitals" class="metric-val-num">0</span>
+                <canvas class="kpi-sparkline" id="sparkline-totalHospitals"></canvas>
+              </div>
+              <div class="metric-card-footer trend-neutral">
+                <span>● Registered facilities</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Total Beds</span>
+                <div class="metric-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path><path d="M6 8v9"></path></svg></div>
+              </div>
+              <div class="metric-val-wrapper d-flex justify-between items-center">
+                <span id="metricTotalBeds" class="metric-val-num">0</span>
+                <canvas class="kpi-sparkline" id="sparkline-totalBeds"></canvas>
+              </div>
+              <div class="metric-card-footer trend-neutral">
+                <span>● System capacity</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Occupied Beds</span>
+                <div class="metric-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></div>
+              </div>
+              <div class="metric-val-wrapper d-flex justify-between items-center">
+                <span id="metricOccupiedBeds" class="metric-val-num">0</span>
+                <canvas class="kpi-sparkline" id="sparkline-occupiedBeds"></canvas>
+              </div>
+              <div class="metric-card-footer trend-neutral" id="metricOccupancyRate">
+                <span>0% Occupancy</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Available Beds</span>
+                <div class="metric-card-icon" style="color: var(--accent-emerald);"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></div>
+              </div>
+              <div class="metric-val-wrapper d-flex justify-between items-center">
+                <span id="metricAvailableBeds" class="metric-val-num" style="color: var(--accent-emerald);">0</span>
+                <canvas class="kpi-sparkline" id="sparkline-availableBeds"></canvas>
+              </div>
+              <div class="metric-card-footer trend-up">
+                <span>Available now</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Critical Alerts</span>
+                <div class="metric-card-icon" style="color: var(--accent-rose);"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></div>
+              </div>
+              <div class="metric-val-wrapper d-flex justify-between items-center">
+                <span id="metricCriticalHospitals" class="metric-val-num" style="color: var(--accent-rose);">0</span>
+                <canvas class="kpi-sparkline" id="sparkline-criticalAlerts"></canvas>
+              </div>
+              <div class="metric-card-footer trend-down">
+                <span>● Urgent capacity warning</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Available Rooms</span>
+                <div class="metric-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg></div>
+              </div>
+              <div class="metric-val-wrapper d-flex justify-between items-center">
+                <span id="metricAvailableRooms" class="metric-val-num">0</span>
+                <canvas class="kpi-sparkline" id="sparkline-availableRooms"></canvas>
+              </div>
+              <div class="metric-card-footer trend-neutral">
+                <span>● Open slots remaining</span>
+              </div>
+            </div>
+
+            <div class="metric-card admin-only hidden">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Active Patients</span>
+                <div class="metric-card-icon" style="color: var(--primary);"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></div>
+              </div>
+              <div class="metric-val-wrapper d-flex justify-between items-center">
+                <span id="metricActivePatients" class="metric-val-num">0</span>
+                <canvas class="kpi-sparkline" id="sparkline-activePatients"></canvas>
+              </div>
+              <div class="metric-card-footer trend-neutral">
+                <span>● Admitted logs</span>
+              </div>
+            </div>
+
+            <div class="metric-card admin-only hidden">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Est. Revenue</span>
+                <div class="metric-card-icon" style="color: var(--secondary);"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
+              </div>
+              <div class="metric-val-wrapper d-flex justify-between items-center">
+                <span id="metricEstimatedRevenue" class="metric-val-num" style="color: var(--secondary);">₹0</span>
+                <canvas class="kpi-sparkline" id="sparkline-estRevenue"></canvas>
+              </div>
+              <div class="metric-card-footer trend-up">
+                <span>● Active billings yield</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Actions Panel -->
+          <div class="control-bar-card mb-4">
+            <h3 class="text-sm font-semibold uppercase text-muted" style="letter-spacing: 0.05em;">Quick Operations Center Actions</h3>
+            <div class="actions-box">
+              <button id="qaBookBed" class="btn btn-primary btn-sm admin-only hidden">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+                <span>Book Bed</span>
+              </button>
+              <a href="#rooms-beds" class="btn btn-outline btn-sm nav-link" data-section="rooms-beds">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9"></path></svg>
+                <span>View Bed Map</span>
+              </a>
+              <button id="qaAddHospital" class="btn btn-secondary btn-sm admin-only hidden">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>Add Hospital</span>
+              </button>
+              <a href="#patient-admissions" class="btn btn-outline btn-sm admin-only hidden nav-link" data-section="patient-admissions">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
+                <span>View Admissions</span>
+              </a>
+              <a href="#reports" class="btn btn-outline btn-sm admin-only hidden nav-link" data-section="reports">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+                <span>View Reports</span>
+              </a>
+            </div>
+          </div>
+
+          <!-- Middle Row: circular ring, trend area, and activity feed -->
+          <div class="dashboard-middle-row">
+            <!-- 1. Circular Occupancy Ring -->
+            <div class="occ-ring-card">
+              <div class="about-section-mini-title uppercase text-center w-full" style="border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">Live Occupancy Ring</div>
+              <div class="occ-ring-wrapper">
+                <svg class="occ-ring-svg" viewBox="0 0 100 100">
+                  <defs>
+                    <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stop-color="var(--accent-cyan)" />
+                      <stop offset="100%" stop-color="var(--primary)" />
+                    </linearGradient>
+                  </defs>
+                  <circle class="occ-ring-bg" cx="50" cy="50" r="42" />
+                  <circle id="ringFillCircle" class="occ-ring-fill" cx="50" cy="50" r="42" stroke-dasharray="263.89" stroke-dashoffset="263.89" />
+                </svg>
+                <div class="occ-ring-label">
+                  <span id="ringPctVal" class="occ-pct">0%</span>
+                  <span class="occ-label-text">Occupied</span>
+                  <span id="ringCountVal" class="occ-count">0/0 Beds</span>
+                </div>
+              </div>
+              <div class="occ-ring-stats mt-2">
+                <div class="occ-stat-row">
+                  <div><span class="occ-stat-dot" style="background: var(--primary);"></span><span class="occ-stat-label">Occupied</span></div>
+                  <span id="ringStatOcc" class="occ-stat-val">0</span>
+                </div>
+                <div class="occ-stat-row">
+                  <div><span class="occ-stat-dot" style="background: var(--accent-emerald);"></span><span class="occ-stat-label">Available</span></div>
+                  <span id="ringStatAvail" class="occ-stat-val">0</span>
+                </div>
+                <div class="occ-stat-row" style="border-top: 1px solid var(--border-subtle); padding-top: 0.25rem; margin-top: 0.25rem;">
+                  <div><span class="occ-stat-dot" style="background: var(--text-muted);"></span><span class="occ-stat-label">Total Beds</span></div>
+                  <span id="ringStatTotal" class="occ-stat-val">0</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. Live Occupancy Trend Area Chart -->
+            <div class="chart-card" style="grid-column: span 1;">
+              <div class="card-title-bar">
+                <h3>Live Bed Occupancy Trend</h3>
+                <span class="badge badge-subtle">Capacity flow</span>
+              </div>
+              <div class="chart-wrapper" style="height: 220px;">
+                <canvas id="occupancyTrendChart"></canvas>
+              </div>
+            </div>
+
+            <!-- 3. Live Activity Feed -->
+            <div class="activity-feed-card">
+              <div class="activity-feed-header">
+                <span class="pulse-dot"></span>
+                <span>Live Operations Log</span>
+              </div>
+              <div class="activity-feed-list" id="dashboardActivityFeed">
+                <!-- Loaded dynamically -->
+                <div class="activity-empty">No active admissions or discharges recorded.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bed Availability Visualization bar -->
+          <div class="bed-occupancy-visual-box">
+            <div class="occupancy-visual-header">
+              <h3>System Capacity &amp; Bed Allocation Status</h3>
+              <span class="text-sm text-muted font-semibold" id="visualPercentLabel">0% Available</span>
+            </div>
+            <div class="occupancy-progress-container">
+              <div id="occupiedProgressSegment" class="progress-bar-segment occupied" style="width: 0%;"></div>
+              <div id="availableProgressSegment" class="progress-bar-segment available" style="width: 0%;"></div>
+            </div>
+            <div class="occupancy-legend">
+              <div class="legend-item">
+                <span class="legend-color-dot occupied"></span>
+                <span>Occupied Beds</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-color-dot available"></span>
+                <span>Available Beds</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charts Row -->
+          <div class="charts-grid">
+            <div class="chart-card">
+              <div class="card-title-bar">
+                <h3>Department Occupancy Distribution</h3>
+                <span class="badge badge-subtle">Beds Breakdown</span>
+              </div>
+              <div class="chart-wrapper">
+                <canvas id="departmentChart"></canvas>
+              </div>
+            </div>
+
+            <div class="chart-card">
+              <div class="card-title-bar">
+                <h3>System Bed status</h3>
+                <span class="badge badge-subtle">Real-time status overview</span>
+              </div>
+              <div class="chart-wrapper">
+                <canvas id="bedStatusChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Overview Table Header -->
+          <div class="section-card">
+            <div class="card-header-actions">
+              <div>
+                <h3>Recent Hospital Updates</h3>
+                <p class="text-muted">Real-time bed counts updated across facilities</p>
+              </div>
+              <div class="action-buttons">
+                <button id="quickSeedBtn" class="btn btn-secondary btn-sm">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  <span>Seed Demo Data</span>
+                </button>
+                <a href="#hospitals" class="btn btn-outline btn-sm nav-link" data-section="hospitals">View All Hospitals &rarr;</a>
+              </div>
+            </div>
+            
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Hospital Name</th>
+                    <th>Location</th>
+                    <th>Department</th>
+                    <th>Total</th>
+                    <th>Occupied</th>
+                    <th>Available</th>
+                    <th>Status</th>
+                    <th>Last Updated</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboardRecentTableBody">
+                  <tr>
+                    <td colspan="8" class="text-center py-4">
+                      <div class="skeleton-loader">
+                        <div class="skeleton-row" style="width: 100%;"></div>
+                        <div class="skeleton-row" style="width: 80%;"></div>
+                        <div class="skeleton-row" style="width: 90%;"></div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= SECTION 2: HOSPITALS ================= -->
+        <section id="section-hospitals" class="content-section">
+          <!-- Control Bar (Search, Filter, Actions) -->
+          <div class="control-bar-card">
+            <div class="search-box">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" id="searchInput" placeholder="Search by Hospital Name or Location..." />
+              <button id="clearSearchBtn" class="clear-btn hidden">&times;</button>
+            </div>
+
+            <div class="filter-box d-flex items-center gap-2">
+              <select id="departmentFilter">
+                <option value="All">All Departments</option>
+                <option value="ICU">ICU</option>
+                <option value="General Ward">General Ward</option>
+                <option value="Emergency">Emergency</option>
+                <option value="Maternity">Maternity</option>
+                <option value="Pediatrics">Pediatrics</option>
+                <option value="Other">Other</option>
+              </select>
+              
+              <select id="statusFilter" class="hidden md-block">
+                <option value="All">All Statuses</option>
+                <option value="Available">Available</option>
+                <option value="Limited">Limited</option>
+                <option value="Critical">Critical</option>
+                <option value="Full">Full</option>
+              </select>
+
+              <select id="sortFilter" class="hidden md-block">
+                <option value="hospitalName|asc">Name (A-Z)</option>
+                <option value="hospitalName|desc">Name (Z-A)</option>
+                <option value="totalBeds|desc">Beds (High-Low)</option>
+                <option value="availableBeds|desc">Available (High-Low)</option>
+              </select>
+            </div>
+
+            <div class="actions-box">
+              <button id="addHospitalTopBtn" class="btn btn-primary admin-only hidden">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>Add Hospital</span>
+              </button>
+              <button id="seedDataBtn" class="btn btn-secondary btn-sm" title="Populate realistic sample hospitals for demo">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                <span>Seed Sample Data</span>
+              </button>
+              <button id="clearDataBtn" class="btn btn-outline-danger btn-sm admin-only hidden" title="Clear all hospital records">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                <span>Clear DB</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Hospitals Main Data Table Card -->
+          <div class="section-card">
+            <div class="table-meta-bar">
+              <span id="recordCountBadge" class="records-count">Showing 0 Hospitals</span>
+              <span class="formula-hint">Formula: Available Beds = Total - Occupied</span>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Hospital Name</th>
+                    <th>Location</th>
+                    <th>Department</th>
+                    <th>Total Beds</th>
+                    <th>Occupied</th>
+                    <th>Available</th>
+                    <th>Status</th>
+                    <th>Last Updated</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="hospitalsTableBody">
+                  <!-- Populated dynamically -->
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Empty State Container -->
+            <div id="emptyState" class="empty-state hidden">
+              <div class="empty-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18"></path><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              </div>
+              <h3>No Hospitals Found</h3>
+              <p id="emptyStateMessage">No hospital records match your search or filter criteria.</p>
+              <button id="seedDataEmptyBtn" class="btn btn-primary mt-3">Seed Sample Hospitals</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= SECTION 3: ADD / EDIT HOSPITAL ================= -->
+        <section id="section-add-hospital" class="content-section">
+          <div class="form-container-card">
+            <div class="form-header">
+              <h2 id="formTitle">Add New Hospital Facility</h2>
+              <p id="formSubTitle" class="text-muted">Enter bed capacity and department parameters. Available beds will be calculated automatically.</p>
+            </div>
+
+            <form id="hospitalForm" novalidate>
+              <input type="hidden" id="hospitalId" value="" />
+
+              <div class="form-grid">
+                <div class="form-group col-span-2">
+                  <label for="hospitalName">Hospital Name <span class="req">*</span></label>
+                  <input type="text" id="hospitalName" class="form-control" placeholder="e.g. Apollo Hospital" required />
+                  <div class="error-feedback" id="err-hospitalName"></div>
+                </div>
+
+                <div class="form-group">
+                  <label for="location">Location / City <span class="req">*</span></label>
+                  <input type="text" id="location" class="form-control" placeholder="e.g. Downtown Central, Block B" required />
+                  <div class="error-feedback" id="err-location"></div>
+                </div>
+
+                <div class="form-group">
+                  <label for="department">Department <span class="req">*</span></label>
+                  <select id="department" class="form-select" required>
+                    <option value="">Select Department...</option>
+                    <option value="ICU">ICU (Intensive Care Unit)</option>
+                    <option value="General Ward">General Ward</option>
+                    <option value="Emergency">Emergency</option>
+                    <option value="Maternity">Maternity</option>
+                    <option value="Pediatrics">Pediatrics</option>
+                    <option value="Other">Other Specialty</option>
+                  </select>
+                  <div class="error-feedback" id="err-department"></div>
+                </div>
+
+                <div class="form-group">
+                  <label for="totalBeds">Total Beds <span class="req">*</span></label>
+                  <input type="number" id="totalBeds" class="form-control" min="1" placeholder="e.g. 100" required />
+                  <div class="error-feedback" id="err-totalBeds"></div>
+                </div>
+
+                <div class="form-group">
+                  <label for="occupiedBeds">Occupied Beds <span class="req">*</span></label>
+                  <input type="number" id="occupiedBeds" class="form-control" min="0" placeholder="e.g. 45" required />
+                  <div class="error-feedback" id="err-occupiedBeds"></div>
+                </div>
+              </div>
+
+              <!-- Real-time Live Preview Calculation Box -->
+              <div class="cost-summary-card mt-4 mb-4">
+                <div class="cost-summary-item">
+                  <span class="cost-summary-label">Available Beds</span>
+                  <span id="previewAvailableBeds" class="cost-summary-value total" style="color: var(--accent-emerald);">0</span>
+                </div>
+                <div class="cost-summary-item">
+                  <span class="cost-summary-label">Availability %</span>
+                  <span id="previewPercentage" class="cost-summary-value">0%</span>
+                </div>
+                <div class="cost-summary-item">
+                  <span class="cost-summary-label">Computed Status</span>
+                  <span id="previewStatusBadge" class="badge badge-available">Available</span>
+                </div>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" id="saveHospitalBtn" class="btn btn-primary btn-lg">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                  <span id="saveBtnText">Save Hospital Record</span>
+                </button>
+                <button type="button" id="cancelFormBtn" class="btn btn-outline btn-lg">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <!-- ================= SECTION 4: ROOMS & BEDS ================= -->
+        <section id="section-rooms-beds" class="content-section">
+          <div class="control-bar-card">
+            <div class="filter-box d-flex items-center gap-2">
+              <div>
+                <label for="roomHospitalFilter" class="text-xs font-semibold text-muted uppercase">Hospital</label>
+                <select id="roomHospitalFilter" class="form-select mt-1" style="display: block;">
+                  <!-- Populated dynamically -->
+                </select>
+              </div>
+              <div>
+                <label for="roomTypeFilter" class="text-xs font-semibold text-muted uppercase">Room Type</label>
+                <select id="roomTypeFilter" class="form-select mt-1" style="display: block;">
+                  <option value="All">All Room Types</option>
+                  <option value="General Ward">General Ward</option>
+                  <option value="Semi-Private">Semi-Private</option>
+                  <option value="Private Room">Private Room</option>
+                  <option value="ICU">ICU</option>
+                  <option value="Emergency">Emergency</option>
+                </select>
+              </div>
+              <div>
+                <label for="bedStatusFilter" class="text-xs font-semibold text-muted uppercase">Bed Status</label>
+                <select id="bedStatusFilter" class="form-select mt-1" style="display: block;">
+                  <option value="All">All Statuses</option>
+                  <option value="Available">Available</option>
+                  <option value="Occupied">Occupied</option>
+                </select>
+              </div>
+            </div>
+            <div class="actions-box">
+              <span class="legend-item"><span class="legend-color-dot available"></span> Available</span>
+              <span class="legend-item"><span class="legend-color-dot occupied"></span> Occupied</span>
+            </div>
+          </div>
+
+          <div id="roomsVisualContainer" class="rooms-visual-grid">
+            <!-- Grouped by department/room types card lists populated dynamically in main.js -->
+          </div>
+        </section>
+
+        <!-- ================= SECTION 5: PATIENT ADMISSIONS ================= -->
+        <section id="section-patient-admissions" class="content-section">
+          <!-- Top admissions statistics -->
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Active Patients</span>
+                <div class="metric-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></div>
+              </div>
+              <div class="metric-val-wrapper">
+                <span id="cardActivePatients" class="metric-val-num">0</span>
+              </div>
+              <div class="metric-card-footer trend-neutral">
+                <span>Current admissions</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Today's Admissions</span>
+                <div class="metric-card-icon" style="color: var(--primary);"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="16" y1="11" x2="22" y2="11"></line></svg></div>
+              </div>
+              <div class="metric-val-wrapper">
+                <span id="cardTodayAdmissions" class="metric-val-num">0</span>
+              </div>
+              <div class="metric-card-footer trend-up">
+                <span>Inward pipeline</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Today's Discharges</span>
+                <div class="metric-card-icon" style="color: var(--secondary);"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="16" y1="11" x2="22" y2="11"></line></svg></div>
+              </div>
+              <div class="metric-val-wrapper">
+                <span id="cardTodayDischarges" class="metric-val-num">0</span>
+              </div>
+              <div class="metric-card-footer trend-neutral">
+                <span>Outward pipeline</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Estimated Revenue</span>
+                <div class="metric-card-icon" style="color: var(--accent-teal);"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
+              </div>
+              <div class="metric-val-wrapper">
+                <span id="cardEstRevenue" class="metric-val-num" style="color: var(--accent-teal);">₹0</span>
+              </div>
+              <div class="metric-card-footer trend-up">
+                <span>Yield calculations</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="control-bar-card">
+            <div class="search-box">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" id="patientSearchInput" placeholder="Search by Patient Name or Patient ID..." />
+              <button id="clearPatientSearchBtn" class="clear-btn hidden">&times;</button>
+            </div>
+            <div class="filter-box">
+              <select id="bookingStatusFilter">
+                <option value="All">All Statuses</option>
+                <option value="Admitted">Admitted</option>
+                <option value="Discharged">Discharged</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="section-card">
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Patient Details</th>
+                    <th>Allocation</th>
+                    <th>Dates</th>
+                    <th>Tariff Details</th>
+                    <th>Status</th>
+                    <th class="text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="admissionsTableBody">
+                  <!-- Populated dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+        <!-- ================= SECTION 6: BOOK BED ================= -->
+        <section id="section-book-bed" class="content-section">
+          <div class="form-container-card">
+            <div class="form-header">
+              <h2>Patient Admission Booking</h2>
+              <p class="text-muted">Register patient profile parameters, bed requirements, and calculate daily pricing rates.</p>
+            </div>
+
+            <!-- Stepper indicators -->
+            <div class="wizard-steps-bar">
+              <div class="wizard-step-item active" data-step="1" id="wizardStepIndicator-1">
+                <div class="wizard-step-num">1</div>
+                <span class="wizard-step-label">Patient Info</span>
+              </div>
+              <div class="wizard-step-item" data-step="2" id="wizardStepIndicator-2">
+                <div class="wizard-step-num">2</div>
+                <span class="wizard-step-label">Facility &amp; Bed</span>
+              </div>
+              <div class="wizard-step-item" data-step="3" id="wizardStepIndicator-3">
+                <div class="wizard-step-num">3</div>
+                <span class="wizard-step-label">Timeline</span>
+              </div>
+              <div class="wizard-step-item" data-step="4" id="wizardStepIndicator-4">
+                <div class="wizard-step-num">4</div>
+                <span class="wizard-step-label">Cost Summary</span>
+              </div>
+            </div>
+
+            <form id="bookingForm" novalidate>
+              <!-- Step 1 Panel -->
+              <div class="wizard-panel active" id="wizardPanel-1">
+                <div class="booking-form-section">
+                  <h3 class="booking-form-section-title">Patient Profile Information</h3>
+                  <div class="form-grid">
+                    <div class="form-group">
+                      <label for="patientName">Patient Full Name <span class="req">*</span></label>
+                      <input type="text" id="patientName" class="form-control" placeholder="e.g. John Doe" required />
+                      <div class="error-feedback" id="err-patientName"></div>
+                    </div>
+                    <div class="form-group">
+                      <label for="patientId">Patient ID Number <span class="req">*</span></label>
+                      <input type="text" id="patientId" class="form-control" placeholder="e.g. PAT-29302" required />
+                      <div class="error-feedback" id="err-patientId"></div>
+                    </div>
+                    <div class="form-group">
+                      <label for="patientAge">Age <span class="req">*</span></label>
+                      <input type="number" id="patientAge" class="form-control" min="0" max="150" placeholder="e.g. 45" required />
+                      <div class="error-feedback" id="err-patientAge"></div>
+                    </div>
+                    <div class="form-group">
+                      <label for="patientGender">Gender <span class="req">*</span></label>
+                      <select id="patientGender" class="form-select" required>
+                        <option value="">Select Gender...</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
+                      <div class="error-feedback" id="err-patientGender"></div>
+                    </div>
+                    <div class="form-group">
+                      <label for="patientPhone">Phone Number <span class="req">*</span></label>
+                      <input type="tel" id="patientPhone" class="form-control" placeholder="e.g. +91 9876543210" required />
+                      <div class="error-feedback" id="err-patientPhone"></div>
+                    </div>
+                    <div class="form-group">
+                      <label for="patientEmergencyContact">Emergency Contact Info <span class="req">*</span></label>
+                      <input type="text" id="patientEmergencyContact" class="form-control" placeholder="e.g. Spouse, +91 9876543211" required />
+                      <div class="error-feedback" id="err-patientEmergencyContact"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 2 Panel -->
+              <div class="wizard-panel" id="wizardPanel-2">
+                <div class="booking-form-section">
+                  <h3 class="booking-form-section-title">Facility &amp; Bed Allocation</h3>
+                  <div class="form-grid">
+                    <div class="form-group">
+                      <label for="bookHospital">Select Hospital Facility <span class="req">*</span></label>
+                      <select id="bookHospital" class="form-select" required>
+                        <option value="">Select Hospital...</option>
+                      </select>
+                      <div class="error-feedback" id="err-bookHospital"></div>
+                    </div>
+                    <div class="form-group">
+                      <label for="bookDepartment">Department <span class="req">*</span></label>
+                      <select id="bookDepartment" class="form-select" required>
+                        <option value="">Select Department...</option>
+                      </select>
+                      <div class="error-feedback" id="err-bookDepartment"></div>
+                    </div>
+                    <div class="form-group">
+                      <label for="bookRoomType">Room Category Type <span class="req">*</span></label>
+                      <select id="bookRoomType" class="form-select" required>
+                        <option value="">Select Room Type...</option>
+                        <option value="General Ward">General Ward (₹1,500/day)</option>
+                        <option value="Semi-Private">Semi-Private (₹2,500/day)</option>
+                        <option value="Private Room">Private Room (₹4,000/day)</option>
+                        <option value="ICU">ICU (₹8,000/day)</option>
+                        <option value="Emergency">Emergency (₹5,000/day)</option>
+                      </select>
+                      <div class="error-feedback" id="err-bookRoomType"></div>
+                    </div>
+                    <div class="form-group">
+                      <label for="bookRoomNumber">Available Room & Bed Slot <span class="req">*</span></label>
+                      <select id="bookRoomNumber" class="form-select" required>
+                        <option value="">Select Bed Slot...</option>
+                      </select>
+                      <div class="error-feedback" id="err-bookRoomNumber"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 3 Panel -->
+              <div class="wizard-panel" id="wizardPanel-3">
+                <div class="booking-form-section">
+                  <h3 class="booking-form-section-title">Admission Timeline</h3>
+                  <div class="form-grid">
+                    <div class="form-group">
+                      <label for="admissionDate">Admission Date <span class="req">*</span></label>
+                      <input type="date" id="admissionDate" class="form-control" required />
+                      <div class="error-feedback" id="err-admissionDate"></div>
+                    </div>
+                    <div class="form-group">
+                      <label for="expectedDischargeDate">Expected Discharge Date <span class="req">*</span></label>
+                      <input type="date" id="expectedDischargeDate" class="form-control" required />
+                      <div class="error-feedback" id="err-expectedDischargeDate"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 4 Panel -->
+              <div class="wizard-panel" id="wizardPanel-4">
+                <div class="booking-form-section">
+                  <h3 class="booking-form-section-title">Admission Cost Summary</h3>
+                  
+                  <div class="cost-summary-card mb-4">
+                    <div class="cost-summary-item">
+                      <span class="cost-summary-label">Cost per Day</span>
+                      <span id="bookingCostPerDay" class="cost-summary-value">₹0</span>
+                    </div>
+                    <div class="cost-summary-item">
+                      <span class="cost-summary-label">Number of Days</span>
+                      <span id="bookingDuration" class="cost-summary-value">0 Days</span>
+                    </div>
+                    <div class="cost-summary-item">
+                      <span class="cost-summary-label">Estimated Total Cost</span>
+                      <span id="bookingEstimatedTotal" class="cost-summary-value total">₹0</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="wizard-nav-bar">
+                <button type="button" id="prevStepBtn" class="btn btn-outline" disabled>&larr; Back</button>
+                <div class="form-actions">
+                  <button type="button" id="nextStepBtn" class="btn btn-primary">Continue &rarr;</button>
+                  <button type="submit" id="bookSubmitBtn" class="btn btn-secondary btn-lg hidden">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                    <span>Confirm Booking</span>
+                  </button>
+                  <button type="button" id="cancelBookingBtn" class="btn btn-outline btn-lg">Cancel</button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <!-- ================= SECTION 7: REPORTS ================= -->
+        <section id="section-reports" class="content-section">
+          <!-- Summary Cards Grid -->
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Total Admissions</span>
+                <div class="metric-card-icon" style="color: var(--primary);"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></div>
+              </div>
+              <div class="metric-val-wrapper">
+                <span id="rptTotalAdmissions" class="metric-val-num">0</span>
+              </div>
+              <div class="metric-card-footer trend-neutral">
+                <span>Admissions yield logs</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Discharged Patients</span>
+                <div class="metric-card-icon" style="color: var(--accent-emerald);"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></div>
+              </div>
+              <div class="metric-val-wrapper">
+                <span id="rptDischargedPatients" class="metric-val-num">0</span>
+              </div>
+              <div class="metric-card-footer trend-neutral">
+                <span>Released from treatment</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-card-title">Total Cash-flow</span>
+                <div class="metric-card-icon" style="color: var(--accent-amber);"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
+              </div>
+              <div class="metric-val-wrapper">
+                <span id="rptTotalRevenue" class="metric-val-num" style="color: var(--primary);">₹0</span>
+              </div>
+              <div class="metric-card-footer trend-up">
+                <span>Total realized revenues</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Revenue Breakdown Graphs -->
+          <div class="charts-grid">
+            <div class="chart-card">
+              <div class="card-title-bar">
+                <h3>Revenue by Department</h3>
+                <span class="badge badge-subtle">Finances distribution</span>
+              </div>
+              <div class="chart-wrapper">
+                <canvas id="revenueDeptChart"></canvas>
+              </div>
+            </div>
+
+            <div class="chart-card">
+              <div class="card-title-bar">
+                <h3>Revenue by Room Type</h3>
+                <span class="badge badge-subtle">Category yields</span>
+              </div>
+              <div class="chart-wrapper">
+                <canvas id="revenueRoomTypeChart"></canvas>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= SECTION 8: ABOUT / SYSTEM INFO ================= -->
+        <section id="section-about" class="content-section about-page-wrapper">
+          <div class="section-card" style="max-width: 600px; margin: 2rem auto; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+            <div style="text-align: center; margin-bottom: 2rem;">
+              <h2 style="font-size: 1.5rem; font-weight: 800; color: var(--text-primary);">Firebase Web Configuration</h2>
+              <p style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;">Connect this application to your custom Firebase backend instance</p>
+            </div>
+            
+            <form id="configForm" style="display: flex; flex-direction: column; gap: 1.25rem;">
+              <div class="form-group">
+                <label for="cfgApiKey" class="text-xs font-semibold uppercase text-muted" style="letter-spacing: 0.04em;">API Key (apiKey)</label>
+                <input type="text" id="cfgApiKey" class="form-control mt-1" placeholder="AIzaSy..." style="height: 42px;" />
+              </div>
+              <div class="form-group">
+                <label for="cfgProjectId" class="text-xs font-semibold uppercase text-muted" style="letter-spacing: 0.04em;">Project ID (projectId)</label>
+                <input type="text" id="cfgProjectId" class="form-control mt-1" placeholder="hospital-bed-tracker-123" style="height: 42px;" />
+              </div>
+              <div class="form-group">
+                <label for="cfgAuthDomain" class="text-xs font-semibold uppercase text-muted" style="letter-spacing: 0.04em;">Auth Domain (authDomain)</label>
+                <input type="text" id="cfgAuthDomain" class="form-control mt-1" placeholder="hospital-bed-tracker-123.firebaseapp.com" style="height: 42px;" />
+              </div>
+
+              <button type="submit" class="btn btn-primary w-full" style="height: 45px; font-weight: 600; margin-top: 1rem; cursor: pointer;">
+                Save Configuration &amp; Sync
+              </button>
+            </form>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ================= DRAWERS & MODALS ================= -->
+
+  <!-- Patient Details Slide-out Drawer -->
+  <div id="drawerBackdrop" class="drawer-backdrop"></div>
+  <div id="patientDetailsDrawer" class="patient-details-drawer">
+    <div class="drawer-header">
+      <h3>Patient Admission Profile</h3>
+      <button class="drawer-close-btn" id="closeDrawerBtn">&times;</button>
+    </div>
+    <div class="drawer-body">
+      <div class="details-card">
+        <div class="details-card-title">Patient Profile</div>
+        <div class="details-grid">
+          <div class="details-item"><span class="details-label">Name</span><span class="details-value" id="dtPatientName">-</span></div>
+          <div class="details-item"><span class="details-label">Patient ID</span><span class="details-value" id="dtPatientId">-</span></div>
+          <div class="details-item"><span class="details-label">Age / Gender</span><span class="details-value" id="dtPatientAgeGender">-</span></div>
+          <div class="details-item"><span class="details-label">Phone</span><span class="details-value" id="dtPatientPhone">-</span></div>
+          <div class="details-item col-span-2"><span class="details-label">Emergency Contact</span><span class="details-value" id="dtEmergencyContact">-</span></div>
+        </div>
+      </div>
+
+      <div class="details-card">
+        <div class="details-card-title">Allocation &amp; Facility</div>
+        <div class="details-grid">
+          <div class="details-item"><span class="details-label">Hospital</span><span class="details-value" id="dtHospitalName">-</span></div>
+          <div class="details-item"><span class="details-label">Department</span><span class="details-value" id="dtDepartment">-</span></div>
+          <div class="details-item"><span class="details-label">Room Type</span><span class="details-value" id="dtRoomType">-</span></div>
+          <div class="details-item"><span class="details-label">Room &amp; Bed</span><span class="details-value" id="dtRoomBed">-</span></div>
+        </div>
+      </div>
+
+      <div class="details-card">
+        <div class="details-card-title">Admission Timeline</div>
+        <div class="details-grid">
+          <div class="details-item"><span class="details-label">Admission Date</span><span class="details-value" id="dtAdmissionDate">-</span></div>
+          <div class="details-item"><span class="details-label">Expected Discharge</span><span class="details-value" id="dtExpectedDischarge">-</span></div>
+          <div class="details-item col-span-2"><span class="details-label">Status</span><span class="details-value" id="dtStatusBadge">-</span></div>
+        </div>
+      </div>
+
+      <div class="details-card">
+        <div class="details-card-title">Billing Summary</div>
+        <div class="billing-summary-block">
+          <div class="billing-row"><span class="text-muted">Cost Per Day</span><span id="dtCostPerDay">₹0</span></div>
+          <div class="billing-row"><span class="text-muted">Duration of Stay</span><span id="dtDuration">0 Days</span></div>
+          <div class="billing-row"><span class="text-muted">Estimated Cost</span><span id="dtEstCost">₹0</span></div>
+          <div class="billing-row total"><span class="font-bold">Total Bill</span><span id="dtTotalBill" class="font-bold">₹0</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="drawer-footer">
+      <button id="printSummaryBtn" class="btn btn-outline w-full">Print Summary</button>
+      <button id="drawerDischargeBtn" class="btn btn-danger w-full">Discharge Patient</button>
+    </div>
+  </div>
+
+  <!-- Modal 1: Login / Auth Modal (Styled Split Screen) -->
+  <div id="authModal" class="login-page-wrapper hidden" style="position: fixed; inset: 0; z-index: 1000;">
+    <!-- Left visual side -->
+    <div class="login-visual-panel">
+      <div class="login-visual-content">
+        <div class="login-visual-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 14c1.49 0 2.87.47 4 1.26V8c0-1.1-.9-2-2-2H3c-1.1 0-2 .9-2 2v14h2v-4h11.26c-.79-1.13-1.26-2.51-1.26-4zm-8-3H9v2H7v-2H5V9h2V7h2v2h2v2z"/><circle cx="19" cy="14" r="4"/><path d="M19 12v4M17 14h4"/></svg>
+        </div>
+        <h1>PulseBed Dashboard</h1>
+        <p>Unified real-time clinical bed availability and patient booking SaaS tracking system. Streamlining admission pipelines on secure cloud networks.</p>
+      </div>
+    </div>
+    <!-- Right form side -->
+    <div class="login-form-panel">
+      <!-- Back button for public mode -->
+      <button class="btn btn-outline btn-sm" id="closeAuthModalBtn" style="position: absolute; top: 1.5rem; right: 1.5rem; display: flex; align-items: center; gap: 0.25rem;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        <span>Back to Guest View</span>
+      </button>
+      <div class="login-card">
+        <div class="login-header">
+          <h2>Admin Access</h2>
+          <p>Please log in with your clinician credentials to gain access.</p>
+        </div>
+        <form id="authForm">
+          <div class="form-group mb-3">
+            <label for="authEmail">Email Address</label>
+            <input type="email" id="authEmail" class="form-control" placeholder="admin@hospital.org" required />
+          </div>
+          <div class="form-group mb-2">
+            <label for="authPassword">Password</label>
+            <div class="password-input-wrapper">
+              <input type="password" id="authPassword" class="form-control" placeholder="••••••••" required style="padding-right: 2.5rem;" />
+              <button type="button" class="password-toggle-btn" id="togglePasswordBtn">
+                <svg id="eyeOpenIcon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg id="eyeClosedIcon" class="hidden" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              </button>
+            </div>
+          </div>
+          
+          <div class="form-group-checkbox">
+            <label class="checkbox-label">
+              <input type="checkbox" id="rememberMe" class="checkbox-input" />
+              <span>Remember me</span>
+            </label>
+            <a href="#" id="forgotPasswordBtn" class="text-sm">Forgot password?</a>
+          </div>
+
+          <div id="authErrorAlert" class="alert alert-danger hidden"></div>
+
+          <button type="submit" id="loginSubmitBtn" class="btn btn-primary w-full mt-3">
+            <span>Sign In</span>
+          </button>
+        </form>
+
+        <div class="demo-credentials-box mt-4">
+          <span style="font-weight: 700; font-size: 0.825rem; display: block; margin-bottom: 0.25rem;">Quick Auto Login:</span>
+          <p style="color: var(--text-muted); font-size: 0.78rem;">Email: <code>admin@hospital.org</code> | Password: <code>admin123</code></p>
+          <button id="fillDemoCredentialsBtn" class="btn btn-subtle btn-xs mt-2 w-full">Auto-fill Credentials</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Booking Confirmation Modal -->
+  <div id="confirmBookingModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Confirm Patient Admission</h3>
+        <button class="modal-close" id="closeConfirmBookingModalBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3">Are you sure you want to finalize this bed allocation? This will register the booking and update system inventory counts.</p>
+        <div class="details-card mb-3">
+          <div style="display:flex; flex-direction:column; gap:0.35rem; font-size:0.875rem;">
+            <div>Patient: <strong id="cbPatientName">-</strong></div>
+            <div>Facility: <strong id="cbHospitalName">-</strong></div>
+            <div>Bed Allocated: <strong id="cbBedName">-</strong></div>
+            <div>Total Estimate: <strong id="cbTotalCost" style="color: var(--primary); font-size:1rem;">₹0</strong></div>
+          </div>
+        </div>
+        <div class="form-actions justify-center">
+          <button id="finalBookingConfirmBtn" class="btn btn-primary w-full">Yes, Confirm Admission</button>
+          <button id="finalBookingCancelBtn" class="btn btn-outline w-full">Modify Details</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Delete Confirmation Modal -->
+  <div id="deleteModal" class="modal-backdrop hidden">
+    <div class="modal-card modal-sm">
+      <div class="modal-header">
+        <h3 class="modal-title text-danger">Confirm Deletion</h3>
+        <button class="modal-close" id="closeDeleteModalBtn">&times;</button>
+      </div>
+      <div class="modal-body text-center">
+        <div class="danger-icon-circle">
+          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        </div>
+        <p class="mt-2">Are you sure you want to delete <strong id="deleteHospitalName">Hospital</strong>?</p>
+        <p class="text-muted text-sm mt-1">This will permanently remove the record from Firestore database and release all bed counts.</p>
+        
+        <div class="form-actions justify-center mt-4">
+          <button id="confirmDeleteBtn" class="btn btn-danger">Yes, Delete Record</button>
+          <button id="cancelDeleteBtn" class="btn btn-outline">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+
+  <!-- Quick Occupied Beds Step Modal -->
+  <div id="stepBedsModal" class="modal-backdrop hidden">
+    <div class="modal-card modal-sm">
+      <div class="modal-header">
+        <h3 class="modal-title">Quick Update Occupied Beds</h3>
+        <button class="modal-close" id="closeStepBedsModalBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p><strong id="stepHospitalName">Hospital</strong></p>
+        <p class="text-muted text-sm mb-3">Total Capacity: <span id="stepTotalBeds">100</span> beds</p>
+
+        <div class="stepper-box">
+          <button id="stepMinusBtn" class="stepper-btn">&minus;</button>
+          <input type="number" id="stepOccupiedVal" class="stepper-input" min="0" value="0" />
+          <button id="stepPlusBtn" class="stepper-btn">&plus;</button>
+        </div>
+
+        <div class="text-center mt-3 text-sm">
+          Calculated Available: <strong id="stepCalculatedAvailable">0</strong>
+        </div>
+
+        <div class="form-actions justify-center mt-4">
+          <button id="saveStepBedsBtn" class="btn btn-primary">Update Count</button>
+          <button id="cancelStepBedsBtn" class="btn btn-outline">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 5: Confirm Patient Discharge Modal -->
+  <div id="dischargeModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h3 class="modal-title">Confirm Patient Discharge</h3>
+          <p class="modal-subtitle">Process stay calculation and release bed slot</p>
+        </div>
+        <button class="modal-close" id="closeDischargeModalBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="dischargeForm" onsubmit="return false;">
+          <input type="hidden" id="dischargeBookingId" />
+          
+          <div class="form-group mb-3">
+            <label>Patient Full Name</label>
+            <input type="text" id="dischargePatientName" class="form-control" readonly disabled />
+          </div>
+
+          <div class="form-grid mb-3">
+            <div class="form-group">
+              <label>Admission Date</label>
+              <input type="text" id="dischargeAdmissionDate" class="form-control" readonly disabled />
+            </div>
+            <div class="form-group">
+              <label for="actualDischargeDate">Actual Discharge Date <span class="req">*</span></label>
+              <input type="date" id="actualDischargeDate" class="form-control" required />
+              <div class="error-feedback" id="err-actualDischargeDate"></div>
+            </div>
+          </div>
+
+          <div class="cost-summary-card mb-4">
+            <div class="cost-summary-item">
+              <span class="cost-summary-label">Tariff Rate</span>
+              <span id="dischargeCostPerDay" class="cost-summary-value">₹0</span>
+            </div>
+            <div class="cost-summary-item">
+              <span class="cost-summary-label">Stay Duration</span>
+              <span id="dischargeDays" class="cost-summary-value">0 Days</span>
+            </div>
+            <div class="cost-summary-item">
+              <span class="cost-summary-label">Final Bill</span>
+              <span id="dischargeFinalTotal" class="cost-summary-value total">₹0</span>
+            </div>
+          </div>
+
+          <div class="form-actions justify-center">
+            <button type="button" id="confirmDischargeBtn" class="btn btn-primary w-full">Process Discharge &amp; Billing</button>
+            <button type="button" id="cancelDischargeBtn" class="btn btn-outline w-full">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div><!-- /#mainLayout -->
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
