@@ -8,64 +8,64 @@
 /* ===================== DESIGN TOKENS ===================== */
 :root {
   /* Core Backgrounds */
-  --bg-body:    #070b13;
-  --bg-surface: rgba(14, 20, 34, 0.85);
-  --bg-surface-solid: #0e1422;
-  --bg-sidebar: rgba(8, 12, 22, 0.98);
-  --bg-card:    rgba(16, 24, 40, 0.75);
-  --bg-input:   rgba(255, 255, 255, 0.06);
-  --bg-hover:   rgba(255, 255, 255, 0.05);
+  --bg-body:    #f0f9ff;
+  --bg-surface: rgba(255, 255, 255, 0.85);
+  --bg-surface-solid: #ffffff;
+  --bg-sidebar: #e0f2fe;
+  --bg-card:    rgba(255, 255, 255, 0.85);
+  --bg-input:   #ffffff;
+  --bg-hover:   rgba(14, 165, 233, 0.06);
   --bg-active:  rgba(14, 165, 233, 0.12);
 
   /* Borders */
-  --border-color:   rgba(255, 255, 255, 0.08);
-  --border-subtle:  rgba(255, 255, 255, 0.05);
-  --border-medium:  rgba(255, 255, 255, 0.12);
+  --border-color:   rgba(14, 165, 233, 0.15);
+  --border-subtle:  rgba(14, 165, 233, 0.08);
+  --border-medium:  rgba(14, 165, 233, 0.25);
   --border-focus:   #0ea5e9;
-  --border-glow:    rgba(0, 242, 254, 0.25);
+  --border-glow:    rgba(14, 165, 233, 0.2);
 
   /* Primary — Sky Blue */
   --primary:       #0ea5e9;
-  --primary-hover: #38bdf8;
-  --primary-light: rgba(14, 165, 233, 0.12);
-  --primary-glow:  rgba(14, 165, 233, 0.3);
+  --primary-hover: #0284c7;
+  --primary-light: rgba(14, 165, 233, 0.1);
+  --primary-glow:  rgba(14, 165, 233, 0.2);
 
   /* Secondary — Teal */
-  --secondary:       #14b8a6;
-  --secondary-hover: #0d9488;
+  --secondary:       #0d9488;
+  --secondary-hover: #0f766e;
 
   /* Accent Spectrum */
-  --accent-cyan:    #00f2fe;
-  --accent-teal:    #00f5d4;
+  --accent-cyan:    #0284c7;
+  --accent-teal:    #0d9488;
   --accent-emerald: #10b981;
-  --accent-amber:   #f59e0b;
-  --accent-rose:    #f43f5e;
-  --accent-purple:  #a855f7;
-  --accent-orange:  #f97316;
-  --accent-blue:    #3b82f6;
+  --accent-amber:   #d97706;
+  --accent-rose:    #e11d48;
+  --accent-purple:  #7c3aed;
+  --accent-orange:  #ea580c;
+  --accent-blue:    #2563eb;
 
-  /* Status Palettes (Dark Mode — translucent) */
-  --status-available-bg:     rgba(16, 185, 129, 0.12);
-  --status-available-text:   #34d399;
-  --status-available-border: rgba(16, 185, 129, 0.35);
+  /* Status Palettes (Light Mode) */
+  --status-available-bg:     rgba(16, 185, 129, 0.1);
+  --status-available-text:   #059669;
+  --status-available-border: rgba(16, 185, 129, 0.3);
 
-  --status-limited-bg:     rgba(245, 158, 11, 0.12);
-  --status-limited-text:   #fbbf24;
-  --status-limited-border: rgba(245, 158, 11, 0.35);
+  --status-limited-bg:     rgba(245, 158, 11, 0.1);
+  --status-limited-text:   #d97706;
+  --status-limited-border: rgba(245, 158, 11, 0.3);
 
-  --status-critical-bg:     rgba(249, 115, 22, 0.12);
-  --status-critical-text:   #fb923c;
+  --status-critical-bg:     rgba(249, 115, 22, 0.1);
+  --status-critical-text:   #ea580c;
   --status-critical-border: rgba(249, 115, 22, 0.35);
 
-  --status-full-bg:     rgba(244, 63, 94, 0.12);
-  --status-full-text:   #fb7185;
+  --status-full-bg:     rgba(244, 63, 94, 0.1);
+  --status-full-text:   #e11d48;
   --status-full-border: rgba(244, 63, 94, 0.35);
 
-  /* Text Scale */
-  --text-main:  #e2e8f0;
-  --text-sub:   #94a3b8;
+  /* Text Scale (Dark on light backgrounds) */
+  --text-main:  #0f172a;
+  --text-sub:   #334155;
   --text-muted: #64748b;
-  --text-dim:   #475569;
+  --text-dim:   #94a3b8;
 
   /* Radius */
   --radius-xs:   6px;
@@ -75,16 +75,16 @@
   --radius-xl:   20px;
   --radius-pill: 9999px;
 
-  /* Shadows */
-  --shadow-sm:       0 1px 4px rgba(0,0,0,0.5);
-  --shadow-md:       0 4px 16px rgba(0,0,0,0.5), 0 0 1px rgba(255,255,255,0.04);
-  --shadow-lg:       0 8px 32px rgba(0,0,0,0.6), 0 0 1px rgba(255,255,255,0.04);
-  --shadow-card:     0 2px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
-  --shadow-glow-c:   0 0 24px rgba(14, 165, 233, 0.25);
-  --shadow-glow-g:   0 0 16px rgba(16, 185, 129, 0.4);
-  --shadow-glow-r:   0 0 16px rgba(244, 63, 94, 0.4);
-  --shadow-glow-a:   0 0 16px rgba(245, 158, 11, 0.4);
-  --shadow-glow-p:   0 0 16px rgba(168, 85, 247, 0.4);
+  /* Shadows (Softer for light mode) */
+  --shadow-sm:       0 1px 3px rgba(0,0,0,0.1);
+  --shadow-md:       0 4px 12px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.04);
+  --shadow-lg:       0 8px 24px rgba(0,0,0,0.12), 0 0 1px rgba(0,0,0,0.04);
+  --shadow-card:     0 2px 8px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.6);
+  --shadow-glow-c:   0 0 16px rgba(14, 165, 233, 0.15);
+  --shadow-glow-g:   0 0 16px rgba(16, 185, 129, 0.2);
+  --shadow-glow-r:   0 0 16px rgba(244, 63, 94, 0.2);
+  --shadow-glow-a:   0 0 16px rgba(245, 158, 11, 0.2);
+  --shadow-glow-p:   0 0 16px rgba(168, 85, 247, 0.2);
 
   /* Transitions */
   --transition-fast:   0.15s cubic-bezier(0.4, 0, 0.2, 1);
