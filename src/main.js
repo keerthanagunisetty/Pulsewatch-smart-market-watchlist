@@ -59,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Setup New Patient Cost Preview Handlers
   setupBookingFormCalculator();
+  setupBookingWizard();
 
   // Subscribe to real-time Firestore hospital data
   subscribeToHospitals((hospitals) => {
@@ -110,6 +111,10 @@ function setupNavigation() {
 function switchSection(sectionId) {
   const isAuth = isAuthenticated();
   const role = getCurrentUserRole();
+
+  if (sectionId === 'book-bed') {
+    if (window.resetBookingWizard) window.resetBookingWizard();
+  }
 
   // Public-only sections (redirect if auth)
   const publicSections = ['landing', 'admin-login', 'user-login', 'register'];
@@ -797,6 +802,160 @@ function setupBookingFormCalculator() {
 
   if (admissionDateInput) admissionDateInput.addEventListener('change', recalculateBookingCost);
   if (expectedDischargeDateInput) expectedDischargeDateInput.addEventListener('change', recalculateBookingCost);
+}
+
+// ================= Booking Wizard Navigation =================
+function setupBookingWizard() {
+  let currentStep = 1;
+
+  const prevBtn = document.getElementById('prevStepBtn');
+  const nextBtn = document.getElementById('nextStepBtn');
+  const submitBtn = document.getElementById('bookSubmitBtn');
+
+  const showStep = (step) => {
+    currentStep = step;
+    
+    // Show active panel, hide others
+    document.querySelectorAll('#bookingForm .wizard-panel').forEach(panel => {
+      panel.classList.remove('active');
+    });
+    const activePanel = document.getElementById(`wizardPanel-${step}`);
+    if (activePanel) activePanel.classList.add('active');
+
+    // Update indicator tabs
+    document.querySelectorAll('#bookingForm .wizard-step-item').forEach(indicator => {
+      const idx = parseInt(indicator.getAttribute('data-step'), 10) || 1;
+      if (idx === step) {
+        indicator.className = 'wizard-step-item active';
+      } else if (idx < step) {
+        indicator.className = 'wizard-step-item completed';
+      } else {
+        indicator.className = 'wizard-step-item';
+      }
+    });
+
+    // Handle navigation buttons
+    if (prevBtn) prevBtn.disabled = (step === 1);
+    
+    if (step === 4) {
+      if (nextBtn) nextBtn.classList.add('hidden');
+      if (submitBtn) submitBtn.classList.remove('hidden');
+    } else {
+      if (nextBtn) nextBtn.classList.remove('hidden');
+      if (submitBtn) submitBtn.classList.add('hidden');
+    }
+  };
+
+  const validateStep = (step) => {
+    let isValid = true;
+    clearBookingFormErrors();
+
+    if (step === 1) {
+      const name = document.getElementById('patientName');
+      const patId = document.getElementById('patientId');
+      const age = document.getElementById('patientAge');
+      const gender = document.getElementById('patientGender');
+      const phone = document.getElementById('patientPhone');
+      const emergency = document.getElementById('patientEmergencyContact');
+
+      if (!name || !name.value.trim()) {
+        showFieldError('patientName', 'Full Name is required.');
+        isValid = false;
+      }
+      if (!patId || !patId.value.trim()) {
+        showFieldError('patientId', 'Patient ID is required.');
+        isValid = false;
+      }
+      if (!age || !age.value || parseInt(age.value) < 0 || parseInt(age.value) > 150) {
+        showFieldError('patientAge', 'Please enter a valid age (0-150).');
+        isValid = false;
+      }
+      if (!gender || !gender.value) {
+        showFieldError('patientGender', 'Gender selection is required.');
+        isValid = false;
+      }
+      if (!phone || !phone.value.trim()) {
+        showFieldError('patientPhone', 'Phone Number is required.');
+        isValid = false;
+      }
+      if (!emergency || !emergency.value.trim()) {
+        showFieldError('patientEmergencyContact', 'Emergency Contact is required.');
+        isValid = false;
+      }
+    } else if (step === 2) {
+      const hosp = document.getElementById('bookHospital');
+      const dept = document.getElementById('bookDepartment');
+      const roomType = document.getElementById('bookRoomType');
+      const roomNum = document.getElementById('bookRoomNumber');
+
+      if (!hosp || !hosp.value) {
+        showFieldError('bookHospital', 'Hospital selection is required.');
+        isValid = false;
+      }
+      if (!dept || !dept.value) {
+        showFieldError('bookDepartment', 'Department selection is required.');
+        isValid = false;
+      }
+      if (!roomType || !roomType.value) {
+        showFieldError('bookRoomType', 'Room Category is required.');
+        isValid = false;
+      }
+      if (!roomNum || !roomNum.value) {
+        showFieldError('bookRoomNumber', 'Room & Bed Slot is required.');
+        isValid = false;
+      }
+    } else if (step === 3) {
+      const admStr = document.getElementById('admissionDate').value;
+      const disStr = document.getElementById('expectedDischargeDate').value;
+
+      if (!admStr) {
+        showFieldError('admissionDate', 'Admission Date is required.');
+        isValid = false;
+      }
+      if (!disStr) {
+        showFieldError('expectedDischargeDate', 'Expected Discharge Date is required.');
+        isValid = false;
+      }
+      if (admStr && disStr) {
+        const adm = new Date(admStr);
+        const dis = new Date(disStr);
+        if (dis < adm) {
+          showFieldError('expectedDischargeDate', 'Discharge date cannot be before admission date.');
+          isValid = false;
+        }
+      }
+    }
+    return isValid;
+  };
+
+  const showFieldError = (fieldId, errMsg) => {
+    const field = document.getElementById(fieldId);
+    if (field) field.classList.add('is-invalid');
+    const feedback = document.getElementById(`err-${fieldId}`);
+    if (feedback) feedback.textContent = errMsg;
+  };
+
+  if (nextBtn) {
+    nextBtn.addEventListener('click', () => {
+      if (validateStep(currentStep)) {
+        showStep(currentStep + 1);
+      }
+    });
+  }
+
+  if (prevBtn) {
+    prevBtn.addEventListener('click', () => {
+      if (currentStep > 1) {
+        showStep(currentStep - 1);
+      }
+    });
+  }
+
+  // Expose reset trigger on form entry
+  window.resetBookingWizard = () => {
+    showStep(1);
+    clearBookingFormErrors();
+  };
 }
 
 // ================= Search & Filters Registry =================
