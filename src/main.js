@@ -39,6 +39,7 @@ let pendingDischargeBooking = null;
 
 // Temporary holder for booking payload during confirmation step
 let pendingBookingPayload = null;
+let isPrepopulating = false;
 
 // Notification Logs State
 let notificationLogs = [];
@@ -113,7 +114,8 @@ function switchSection(sectionId) {
   const role = getCurrentUserRole();
 
   if (sectionId === 'book-bed') {
-    if (window.resetBookingWizard) window.resetBookingWizard();
+    if (window.resetBookingWizard) window.resetBookingWizard(isPrepopulating);
+    isPrepopulating = false;
   }
 
   // Public-only sections (redirect if auth)
@@ -578,6 +580,7 @@ function renderRoomsBedsPage() {
 
 // Prepopulate booking fields
 function prepopulateBookingForm(hospId, dept, roomType, roomNumber, bedNumber) {
+  isPrepopulating = true;
   const bookHosp = document.getElementById('bookHospital');
   const bookDept = document.getElementById('bookDepartment');
   const bookRoomType = document.getElementById('bookRoomType');
@@ -783,6 +786,8 @@ function setupBookingFormCalculator() {
     document.getElementById('bookingEstimatedTotal').textContent = `₹0`;
   };
 
+  window.recalculateBookingCost = recalculateBookingCost;
+
   if (bookHosp) {
     bookHosp.addEventListener('change', () => {
       triggerBookingCascadeOptions(bookHosp.value);
@@ -823,7 +828,7 @@ function setupBookingWizard() {
     if (activePanel) activePanel.classList.add('active');
 
     // Update indicator tabs
-    document.querySelectorAll('#bookingForm .wizard-step-item').forEach(indicator => {
+    document.querySelectorAll('#section-book-bed .wizard-step-item').forEach(indicator => {
       const idx = parseInt(indicator.getAttribute('data-step'), 10) || 1;
       if (idx === step) {
         indicator.className = 'wizard-step-item active';
@@ -840,6 +845,9 @@ function setupBookingWizard() {
     if (step === 4) {
       if (nextBtn) nextBtn.classList.add('hidden');
       if (submitBtn) submitBtn.classList.remove('hidden');
+      if (window.recalculateBookingCost) {
+        window.recalculateBookingCost();
+      }
     } else {
       if (nextBtn) nextBtn.classList.remove('hidden');
       if (submitBtn) submitBtn.classList.add('hidden');
@@ -952,9 +960,30 @@ function setupBookingWizard() {
   }
 
   // Expose reset trigger on form entry
-  window.resetBookingWizard = () => {
+  window.resetBookingWizard = (keepFormValues = false) => {
+    if (!keepFormValues) {
+      const bookingForm = document.getElementById('bookingForm');
+      if (bookingForm) bookingForm.reset();
+
+      // Set default dates
+      const today = new Date();
+      const tomorrow = new Date();
+      tomorrow.setDate(today.getDate() + 1);
+
+      const admissionDateInput = document.getElementById('admissionDate');
+      const expectedDischargeDateInput = document.getElementById('expectedDischargeDate');
+      if (admissionDateInput) {
+        admissionDateInput.value = today.toISOString().split('T')[0];
+      }
+      if (expectedDischargeDateInput) {
+        expectedDischargeDateInput.value = tomorrow.toISOString().split('T')[0];
+      }
+    }
     showStep(1);
     clearBookingFormErrors();
+    if (window.recalculateBookingCost) {
+      window.recalculateBookingCost();
+    }
   };
 }
 
