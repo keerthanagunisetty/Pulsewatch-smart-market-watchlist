@@ -1,5 +1,7 @@
 # 🏥 Hospital Bed Availability Tracker (PulseBed)
 
+[![Vercel Deployment](https://img.shields.io/badge/Vercel-Deployed-brightgreen)](https://hospital-bed-availability-tracker.vercel.app)
+
 A cloud-based real-time hospital bed management and patient booking web application built for the **Cloud Applications** coursework. Designed to allow hospital staff and administrators to track, book, and manage bed availability and pricing structures across medical facilities and departments in real-time.
 
 ---
