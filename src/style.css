@@ -3330,7 +3330,7 @@ code {
 .user-hosp-name {
   font-size: 1rem;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--text-main);
   line-height: 1.3;
 }
 .user-hosp-location {
@@ -3357,13 +3357,13 @@ code {
   flex: 1;
   text-align: center;
   padding: 0.5rem;
-  background: var(--bg-main);
+  background: var(--bg-hover);
   border-radius: var(--radius-sm);
 }
 .user-stat-val {
   font-size: 1.4rem;
   font-weight: 800;
-  color: var(--text-primary);
+  color: var(--text-main);
   line-height: 1;
 }
 .user-stat-lbl {
@@ -3410,7 +3410,7 @@ code {
 .user-room-title {
   font-size: 0.95rem;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--text-main);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -3465,7 +3465,7 @@ code {
 .user-booking-patient {
   font-size: 1rem;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--text-main);
 }
 .user-booking-details {
   display: flex;
@@ -3529,7 +3529,7 @@ code {
   justify-content: center;
   min-height: 100vh;
   padding: 2rem 1rem;
-  background: linear-gradient(135deg, var(--bg-main) 0%, rgba(99,102,241,0.04) 100%);
+  background: linear-gradient(135deg, var(--bg-body) 0%, rgba(37, 99, 235, 0.05) 100%);
 }
 .auth-panel-card {
   background: var(--bg-surface);
@@ -3550,7 +3550,7 @@ code {
 .form-title-group h2 {
   font-size: 1.6rem;
   font-weight: 800;
-  color: var(--text-primary);
+  color: var(--text-main);
   background: linear-gradient(135deg, var(--primary), var(--primary-hover));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -3600,7 +3600,7 @@ code {
   align-items: center;
   justify-content: center;
   padding: 3rem 1.5rem;
-  background: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.08) 0%, transparent 60%), var(--bg-main);
+  background: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.08) 0%, transparent 60%), var(--bg-body);
 }
 .landing-header {
   text-align: center;
@@ -3618,7 +3618,7 @@ code {
 .landing-header h1 {
   font-size: 2.4rem;
   font-weight: 900;
-  color: var(--text-primary);
+  color: var(--text-main);
   letter-spacing: -0.03em;
 }
 .landing-header h1 span {
