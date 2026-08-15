@@ -8,14 +8,14 @@
 /* ===================== DESIGN TOKENS ===================== */
 :root {
   /* Core Backgrounds */
-  --bg-body:    #f8fafc;
-  --bg-surface: rgba(255, 255, 255, 0.95);
+  --bg-body:    #f1f5f9;
+  --bg-surface: rgba(255, 255, 255, 0.85);
   --bg-surface-solid: #ffffff;
-  --bg-sidebar: #1e40af;
-  --bg-card:    rgba(255, 255, 255, 0.95);
+  --bg-sidebar: #0f172a;
+  --bg-card:    rgba(255, 255, 255, 0.85);
   --bg-input:   #ffffff;
-  --bg-hover:   rgba(37, 99, 235, 0.05);
-  --bg-active:  rgba(37, 99, 235, 0.12);
+  --bg-hover:   #f8fafc;
+  --bg-active:  #eff6ff;
 
   /* Borders */
   --border-color:   #e2e8f0;
