@@ -8,34 +8,34 @@
 /* ===================== DESIGN TOKENS ===================== */
 :root {
   /* Core Backgrounds */
-  --bg-body:    #f0f9ff;
-  --bg-surface: rgba(255, 255, 255, 0.85);
+  --bg-body:    #f8fafc;
+  --bg-surface: rgba(255, 255, 255, 0.95);
   --bg-surface-solid: #ffffff;
-  --bg-sidebar: #e0f2fe;
-  --bg-card:    rgba(255, 255, 255, 0.85);
+  --bg-sidebar: #1e40af;
+  --bg-card:    rgba(255, 255, 255, 0.95);
   --bg-input:   #ffffff;
-  --bg-hover:   rgba(14, 165, 233, 0.06);
-  --bg-active:  rgba(14, 165, 233, 0.12);
+  --bg-hover:   rgba(37, 99, 235, 0.05);
+  --bg-active:  rgba(37, 99, 235, 0.12);
 
   /* Borders */
-  --border-color:   rgba(14, 165, 233, 0.15);
-  --border-subtle:  rgba(14, 165, 233, 0.08);
-  --border-medium:  rgba(14, 165, 233, 0.25);
-  --border-focus:   #0ea5e9;
-  --border-glow:    rgba(14, 165, 233, 0.2);
+  --border-color:   #e2e8f0;
+  --border-subtle:  #f1f5f9;
+  --border-medium:  #cbd5e1;
+  --border-focus:   #2563eb;
+  --border-glow:    rgba(37, 99, 235, 0.2);
 
-  /* Primary — Sky Blue */
-  --primary:       #0ea5e9;
-  --primary-hover: #0284c7;
-  --primary-light: rgba(14, 165, 233, 0.1);
-  --primary-glow:  rgba(14, 165, 233, 0.2);
+  /* Primary — Royal Blue */
+  --primary:       #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-light: rgba(37, 99, 235, 0.1);
+  --primary-glow:  rgba(37, 99, 235, 0.2);
 
-  /* Secondary — Teal */
-  --secondary:       #0d9488;
-  --secondary-hover: #0f766e;
+  /* Secondary — Sky Blue */
+  --secondary:       #0ea5e9;
+  --secondary-hover: #0284c7;
 
   /* Accent Spectrum */
-  --accent-cyan:    #0284c7;
+  --accent-cyan:    #0ea5e9;
   --accent-teal:    #0d9488;
   --accent-emerald: #10b981;
   --accent-amber:   #d97706;
@@ -64,8 +64,8 @@
   /* Text Scale (Dark on light backgrounds) */
   --text-main:  #0f172a;
   --text-sub:   #334155;
-  --text-muted: #64748b;
-  --text-dim:   #94a3b8;
+  --text-muted: #475569;
+  --text-dim:   #64748b;
 
   /* Radius */
   --radius-xs:   6px;
@@ -76,15 +76,15 @@
   --radius-pill: 9999px;
 
   /* Shadows (Softer for light mode) */
-  --shadow-sm:       0 1px 3px rgba(0,0,0,0.1);
-  --shadow-md:       0 4px 12px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.04);
-  --shadow-lg:       0 8px 24px rgba(0,0,0,0.12), 0 0 1px rgba(0,0,0,0.04);
-  --shadow-card:     0 2px 8px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.6);
-  --shadow-glow-c:   0 0 16px rgba(14, 165, 233, 0.15);
-  --shadow-glow-g:   0 0 16px rgba(16, 185, 129, 0.2);
-  --shadow-glow-r:   0 0 16px rgba(244, 63, 94, 0.2);
-  --shadow-glow-a:   0 0 16px rgba(245, 158, 11, 0.2);
-  --shadow-glow-p:   0 0 16px rgba(168, 85, 247, 0.2);
+  --shadow-sm:       0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md:       0 4px 12px rgba(0,0,0,0.06), 0 0 1px rgba(0,0,0,0.02);
+  --shadow-lg:       0 8px 24px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.02);
+  --shadow-card:     0 2px 8px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.8);
+  --shadow-glow-c:   0 0 16px rgba(37, 99, 235, 0.15);
+  --shadow-glow-g:   0 0 16px rgba(16, 185, 129, 0.15);
+  --shadow-glow-r:   0 0 16px rgba(244, 63, 94, 0.15);
+  --shadow-glow-a:   0 0 16px rgba(245, 158, 11, 0.15);
+  --shadow-glow-p:   0 0 16px rgba(168, 85, 247, 0.15);
 
   /* Transitions */
   --transition-fast:   0.15s cubic-bezier(0.4, 0, 0.2, 1);
@@ -456,7 +456,7 @@ code {
 
 /* ===================== TOP HEADER ===================== */
 .top-header {
-  background: rgba(8, 12, 22, 0.92);
+  background: var(--bg-surface);
   border-bottom: 1px solid var(--border-color);
   padding: 0.875rem 1.75rem;
   display: flex;
@@ -3690,4 +3690,64 @@ code {
 #section-user-login,
 #section-register {
   padding: 0;
+}
+
+/* Sidebar and Mobile Header overrides for Royal Blue theme */
+.sidebar {
+  background: var(--bg-sidebar);
+  color: #ffffff;
+}
+.sidebar .brand-title {
+  color: #ffffff;
+}
+.sidebar .brand-subtitle {
+  color: rgba(255, 255, 255, 0.7);
+}
+.sidebar .sidebar-nav-section-label {
+  color: rgba(255, 255, 255, 0.5);
+}
+.sidebar .nav-link {
+  color: rgba(255, 255, 255, 0.75);
+}
+.sidebar .nav-link:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+.sidebar .nav-link.active {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+.sidebar .nav-link.active::before {
+  background: #ffffff;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.8);
+}
+.sidebar .sidebar-collapse-btn {
+  color: rgba(255, 255, 255, 0.7);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+.sidebar .sidebar-collapse-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+.sidebar .cloud-status-box {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.sidebar .cloud-status-title {
+  color: #ffffff;
+}
+.sidebar .cloud-status-subtitle {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.mobile-header {
+  background: var(--bg-sidebar);
+  color: #ffffff;
+}
+.mobile-header .brand-name {
+  color: #ffffff !important;
+}
+.mobile-header .icon-btn {
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
 }
