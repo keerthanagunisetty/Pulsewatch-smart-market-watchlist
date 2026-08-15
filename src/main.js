@@ -117,9 +117,11 @@ function switchSection(sectionId) {
   // Admin-only sections
   const adminOnlySections = ['dashboard', 'add-hospital', 'reports'];
   // Admin + Staff sections  
-  const adminStaffSections = ['patient-admissions', 'book-bed'];
+  const adminStaffSections = ['patient-admissions'];
   // User-only sections
   const userSections = ['user-dashboard', 'user-available-beds', 'user-my-bookings'];
+  // Shared protected sections (accessible by Admin, Staff, and Patients)
+  const sharedProtectedSections = ['book-bed'];
 
   // Redirect unauthenticated users from protected sections
   if (!isAuth) {
@@ -128,7 +130,7 @@ function switchSection(sectionId) {
       switchSection('admin-login');
       return;
     }
-    if (userSections.includes(sectionId)) {
+    if (userSections.includes(sectionId) || sharedProtectedSections.includes(sectionId)) {
       showToast('Please sign in to access your portal.', 'info');
       switchSection('user-login');
       return;
