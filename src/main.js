@@ -1,2325 +1,1610 @@
 // ==========================================================================
-// PulseBed Main Application Router & Event Controller (Healthcare SaaS Light Theme)
+// Smart Market Watchlist — Main Client Engine
+// Real-Time 500ms Telemetry, Deep Fundamentals, Dedicated Registration
 // ==========================================================================
 
-import { initAuth, isAuthenticated, getCurrentUserRole, getCurrentUserProfile, loginUser, logoutUser, registerUser } from './auth.js';
-import { updateStorageModeUI, saveStoredFirebaseConfig } from './firebase-config.js';
-import { 
-  subscribeToHospitals, 
-  addHospital, 
-  updateHospital, 
-  deleteHospital, 
-  seedSampleHospitals, 
-  clearAllHospitals,
-  calculateBedMetrics,
-  updateOccupiedBedsOnly,
-  subscribeToBookings,
-  addPatientBooking,
-  dischargePatient,
-  confirmPatientBooking,
-  cancelPatientBooking,
-  getRoomsAndBedsForHospital,
-  ROOM_TARIFFS
-} from './hospitalService.js';
-import { updateDashboard, getBadgeClass, escapeHtml, formatRelativeTime } from './dashboard.js';
+class App {
+  constructor() {
+    this.token = localStorage.getItem('pulsewatch_token') || null;
+    this.user = JSON.parse(localStorage.getItem('pulsewatch_user') || 'null');
+    this.watchlists = [];
+    this.activeWatchlistId = null;
+    this.allMasterStocks = [];
+    this.stocksMap = new Map();
+    this.indices = {};
+    this.selectedStock = null;
+    this.activeFilter = 'ALL';
+    this.searchQuery = '';
+    this.searchResults = [];
+    this.connectionStatus = 'CONNECTING';
+    this.isDelayedFeed = false;
+    this.lastLatency = 18;
+    this.ws = null;
+    this.reconnectTimer = null;
+    this.theme = localStorage.getItem('pulsewatch_theme') || 'light';
+    this.chaosOpen = false;
+    this.currentView = this.token ? 'dashboard' : 'register'; // Defaults to clean Registration page if not logged in!
+    this.authError = '';
+    this.showCreateWlModal = false;
+    this.selectedRegisterSectors = ['Technology', 'Banking & Financials'];
 
-// Application State
-let allHospitals = [];
-let allBookings = [];
-let pendingDeleteId = null;
-let pendingStepId = null;
-let currentStepTotal = 0;
-let currentStepOccupied = 0;
+    this.init();
+  }
 
-// Patient Detailed View Drawer State
-let selectedBookingForDetail = null;
+  async init() {
+    document.documentElement.setAttribute('data-theme', this.theme);
+    this.render();
 
-// Patient Discharge Modal State
-let pendingDischargeBooking = null;
+    if (this.token && this.user) {
+      await this.loadInitialData();
+      this.connectWebSocket();
+    }
+  }
 
-// Temporary holder for booking payload during confirmation step
-let pendingBookingPayload = null;
-let isPrepopulating = false;
+  // --- API Methods ---
 
-// Notification Logs State
-let notificationLogs = [];
+  async apiRequest(endpoint, options = {}) {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
+      ...(options.headers || {})
+    };
 
-// Init Application
-document.addEventListener('DOMContentLoaded', () => {
-  setupNavigation();
-  setupAuthListeners();
-  setupFormListeners();
-  setupSearchAndFilters();
-  setupModals();
-  setupMobileDrawer();
-  setupCollapsibleSidebar();
-  setupHeaderInteractions();
-  setupRememberMe();
-  setupPatientDetailsDrawer();
-  updateStorageModeUI();
-
-  // Setup New Patient Cost Preview Handlers
-  setupBookingFormCalculator();
-  setupBookingWizard();
-
-  // Subscribe to real-time Firestore hospital data
-  subscribeToHospitals((hospitals) => {
-    allHospitals = hospitals;
-    populateHospitalDropdowns();
-    renderAllViews();
-    updateNotificationFeed();
-  });
-
-  // Subscribe to real-time Patient Bookings data
-  subscribeToBookings((bookings) => {
-    // Generate notification alerts for newly added bookings or discharges
-    processNewNotifications(bookings);
+    const url = endpoint.startsWith('http') ? endpoint : `/api${endpoint}`;
+    const response = await fetch(url, { ...options, headers });
     
-    allBookings = bookings;
-    renderAllViews();
-    updateNotificationFeed();
-  });
-});
+    if (response.status === 401) {
+      this.logout();
+      throw new Error('Session expired');
+    }
 
-// ================= Navigation Router =================
-function setupNavigation() {
-  const navLinks = document.querySelectorAll('.nav-link');
-  
-  navLinks.forEach(link => {
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      const targetSection = link.getAttribute('data-section');
-      if (targetSection) {
-        switchSection(targetSection);
-        closeMobileSidebar();
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Request failed');
+    }
+    return data;
+  }
+
+  async loadInitialData() {
+    try {
+      const stocksData = await this.apiRequest('/stocks');
+      this.allMasterStocks = stocksData.stocks;
+      this.indices = stocksData.indices;
+      for (const s of this.allMasterStocks) {
+        this.stocksMap.set(s.symbol, s);
       }
+
+      const wlData = await this.apiRequest('/watchlists');
+      this.watchlists = wlData.watchlists || [];
+      if (this.watchlists.length > 0 && !this.activeWatchlistId) {
+        this.activeWatchlistId = this.watchlists[0].id;
+      }
+
+      this.render();
+    } catch (err) {
+      console.error('Failed to load initial data:', err);
+    }
+  }
+
+  // --- WebSocket Real-Time Stream (500ms Ticks) ---
+
+  connectWebSocket() {
+    if (this.ws) {
+      try { this.ws.close(); } catch(e) {}
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+    this.connectionStatus = 'CONNECTING';
+    this.updateTelemetryBadge();
+
+    try {
+      this.ws = new WebSocket(wsUrl);
+
+      this.ws.onopen = () => {
+        this.connectionStatus = 'LIVE';
+        this.updateTelemetryBadge();
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          this.handleSocketMessage(data);
+        } catch (e) {
+          console.error('Socket parse error:', e);
+        }
+      };
+
+      this.ws.onclose = () => {
+        this.connectionStatus = 'RECONNECTING';
+        this.updateTelemetryBadge();
+        this.scheduleReconnect();
+      };
+
+      this.ws.onerror = () => {
+        this.connectionStatus = 'RECONNECTING';
+        this.updateTelemetryBadge();
+      };
+    } catch (e) {
+      this.connectionStatus = 'RECONNECTING';
+      this.updateTelemetryBadge();
+      this.scheduleReconnect();
+    }
+  }
+
+  scheduleReconnect() {
+    if (!this.reconnectTimer) {
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.connectWebSocket();
+      }, 2500);
+    }
+  }
+
+  handleSocketMessage(msg) {
+    if (msg.type === 'INITIAL_SNAPSHOT' || msg.type === 'MARKET_TICK') {
+      if (msg.indices) {
+        this.indices = msg.indices;
+        this.updateIndicesUI();
+      }
+
+      this.isDelayedFeed = Boolean(msg.isDelayed);
+
+      if (msg.stocks && Array.isArray(msg.stocks)) {
+        for (const update of msg.stocks) {
+          const existing = this.stocksMap.get(update.symbol);
+          if (existing) {
+            const oldPrice = existing.last_price;
+            const newPrice = update.last_price;
+            const flashClass = newPrice > oldPrice ? 'flash-up' : (newPrice < oldPrice ? 'flash-down' : '');
+
+            Object.assign(existing, update);
+
+            // Update live item in active watchlist with 500ms smooth patch
+            const rowElem = document.getElementById(`ticker-row-${update.symbol}`);
+            if (rowElem) {
+              this.updateSingleRowUI(rowElem, existing, flashClass);
+            }
+
+            // Update drawer if currently inspecting this stock
+            if (this.selectedStock && this.selectedStock.symbol === update.symbol) {
+              Object.assign(this.selectedStock, update);
+              this.updateDrawerLiveStats();
+            }
+          }
+        }
+      }
+    } else if (msg.type === 'FEED_STATUS_CHANGE') {
+      this.isDelayedFeed = Boolean(msg.isDelayed);
+      this.updateTelemetryBadge();
+    }
+  }
+
+  // --- Auth & Navigation Handlers ---
+
+  async handleJudgeDemoLogin() {
+    try {
+      this.authError = '';
+      const data = await this.apiRequest('/auth/demo');
+      this.token = data.token;
+      this.user = data.user;
+      localStorage.setItem('pulsewatch_token', this.token);
+      localStorage.setItem('pulsewatch_user', JSON.stringify(this.user));
+      
+      this.currentView = 'dashboard';
+      await this.loadInitialData();
+      this.connectWebSocket();
+      this.render();
+    } catch (err) {
+      this.authError = err.message || 'Demo login failed';
+      this.render();
+    }
+  }
+
+  async handleLogin(email, password) {
+    try {
+      this.authError = '';
+      const data = await this.apiRequest('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password })
+      });
+      this.token = data.token;
+      this.user = data.user;
+      localStorage.setItem('pulsewatch_token', this.token);
+      localStorage.setItem('pulsewatch_user', JSON.stringify(this.user));
+
+      this.currentView = 'dashboard';
+      await this.loadInitialData();
+      this.connectWebSocket();
+      this.render();
+    } catch (err) {
+      this.authError = err.message || 'Login failed';
+      this.render();
+    }
+  }
+
+  async handleRegister(name, email, password, experienceLevel, preferredSectors) {
+    try {
+      this.authError = '';
+      const data = await this.apiRequest('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+          experience_level: experienceLevel,
+          preferred_sectors: preferredSectors
+        })
+      });
+      this.token = data.token;
+      this.user = data.user;
+      localStorage.setItem('pulsewatch_token', this.token);
+      localStorage.setItem('pulsewatch_user', JSON.stringify(this.user));
+
+      this.currentView = 'dashboard';
+      await this.loadInitialData();
+      this.connectWebSocket();
+      this.render();
+    } catch (err) {
+      this.authError = err.message || 'Registration failed';
+      this.render();
+    }
+  }
+
+  logout() {
+    this.token = null;
+    this.user = null;
+    this.watchlists = [];
+    this.activeWatchlistId = null;
+    this.currentView = 'login';
+    localStorage.removeItem('pulsewatch_token');
+    localStorage.removeItem('pulsewatch_user');
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    this.render();
+  }
+
+  // --- Watchlist Operations ---
+
+  async createWatchlist(name, description) {
+    try {
+      const data = await this.apiRequest('/watchlists', {
+        method: 'POST',
+        body: JSON.stringify({ name, description })
+      });
+      this.watchlists.push(data.watchlist);
+      this.activeWatchlistId = data.watchlist.id;
+      this.showCreateWlModal = false;
+      this.render();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async addStockToWatchlist(symbol) {
+    if (!this.activeWatchlistId) return;
+    try {
+      const data = await this.apiRequest(`/watchlists/${this.activeWatchlistId}/items`, {
+        method: 'POST',
+        body: JSON.stringify({ symbol })
+      });
+      const activeWl = this.getActiveWatchlist();
+      if (activeWl) {
+        activeWl.items.push(data.item);
+      }
+      this.searchQuery = '';
+      this.searchResults = [];
+      this.render();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async addNewStockAndTrack(symbol) {
+    const sym = symbol.toUpperCase().trim();
+    const addBtn = document.getElementById(`btn-add-new-${sym}`);
+    if (addBtn) {
+      addBtn.textContent = '⏳ Fetching...';
+      addBtn.disabled = true;
+    }
+
+    try {
+      // Step 1: Fetch & register live data for this new symbol
+      const result = await this.apiRequest('/stocks/add', {
+        method: 'POST',
+        body: JSON.stringify({ symbol: sym })
+      });
+
+      // Step 2: Use the official resolved symbol (e.g. KALYANKJIL, SENSEX)
+      const finalSym = result.stock ? result.stock.symbol : sym;
+
+      if (result.stock) {
+        this.stocksMap.set(finalSym, result.stock);
+        if (!this.allMasterStocks.some(s => s.symbol === finalSym)) {
+          this.allMasterStocks.push(result.stock);
+        }
+      }
+
+      // Step 3: Add to active watchlist with official symbol
+      await this.addStockToWatchlist(finalSym);
+
+    } catch (err) {
+      alert(`Could not add ${sym}: ${err.message}`);
+      if (addBtn) {
+        addBtn.textContent = '+ Add & Track';
+        addBtn.disabled = false;
+      }
+    }
+  }
+
+  async removeStockFromWatchlist(symbol, event) {
+    if (event) event.stopPropagation();
+    if (!this.activeWatchlistId) return;
+    try {
+      await this.apiRequest(`/watchlists/${this.activeWatchlistId}/items/${symbol}`, {
+        method: 'DELETE'
+      });
+      const activeWl = this.getActiveWatchlist();
+      if (activeWl) {
+        activeWl.items = activeWl.items.filter(i => i.symbol !== symbol);
+      }
+      if (this.selectedStock && this.selectedStock.symbol === symbol) {
+        this.selectedStock = null;
+      }
+      this.render();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async saveStockNotes(symbol, notes, customTags) {
+    if (!this.activeWatchlistId) return;
+    try {
+      await this.apiRequest(`/watchlists/${this.activeWatchlistId}/items/${symbol}/notes`, {
+        method: 'PUT',
+        body: JSON.stringify({ notes, custom_tags: customTags })
+      });
+      const activeWl = this.getActiveWatchlist();
+      if (activeWl) {
+        const item = activeWl.items.find(i => i.symbol === symbol);
+        if (item) {
+          item.notes = notes;
+          item.custom_tags = customTags.split(',').map(t => t.trim()).filter(Boolean);
+        }
+      }
+      alert('Investment notes saved to database!');
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  // --- Chaos Operations ---
+
+  async triggerChaos(action, symbol = 'INFY') {
+    try {
+      const data = await this.apiRequest('/stocks/simulation/chaos', {
+        method: 'POST',
+        body: JSON.stringify({ action, symbol })
+      });
+      console.log('Chaos action triggered:', data.message);
+    } catch (err) {
+      console.error('Chaos error:', err);
+    }
+  }
+
+  toggleOfflineMode(forceOffline) {
+    if (forceOffline) {
+      if (this.ws) {
+        this.ws.close();
+        this.ws = null;
+      }
+      this.connectionStatus = 'OFFLINE';
+      this.isDelayedFeed = true;
+      this.updateTelemetryBadge();
+    } else {
+      this.isDelayedFeed = false;
+      this.connectWebSocket();
+    }
+  }
+
+  // --- Helpers ---
+
+  getActiveWatchlist() {
+    return this.watchlists.find(w => w.id === this.activeWatchlistId) || this.watchlists[0] || null;
+  }
+
+  getFilteredItems() {
+    const activeWl = this.getActiveWatchlist();
+    if (!activeWl || !activeWl.items) return [];
+
+    let items = activeWl.items.map(item => {
+      const live = this.stocksMap.get(item.symbol) || item.live;
+      return { ...item, live };
     });
-  });
 
-  // Handle URL hash changes
-  window.addEventListener('hashchange', () => {
-    const hash = window.location.hash.replace('#', '');
-    if (hash) {
-      switchSection(hash);
-    }
-  });
-
-  // Initial Hash check - if no hash, show landing page
-  const initialHash = window.location.hash.replace('#', '') || 'landing';
-  switchSection(initialHash);
-}
-
-function switchSection(sectionId) {
-  const isAuth = isAuthenticated();
-  const role = getCurrentUserRole();
-
-  if (sectionId === 'book-bed') {
-    if (window.resetBookingWizard) window.resetBookingWizard(isPrepopulating);
-    isPrepopulating = false;
-  }
-
-  // Public-only sections (redirect if auth)
-  const publicSections = ['landing', 'admin-login', 'user-login', 'register'];
-
-  // Admin-only sections
-  const adminOnlySections = ['dashboard', 'add-hospital', 'reports'];
-  // Admin + Staff sections  
-  const adminStaffSections = ['patient-admissions'];
-  // User-only sections
-  const userSections = ['user-dashboard', 'user-available-beds', 'user-my-bookings'];
-  // Shared protected sections (accessible by Admin, Staff, and Patients)
-  const sharedProtectedSections = ['book-bed'];
-
-  // Redirect unauthenticated users from protected sections
-  if (!isAuth) {
-    if (adminOnlySections.includes(sectionId) || adminStaffSections.includes(sectionId)) {
-      showToast('Please sign in to access this area.', 'info');
-      switchSection('admin-login');
-      return;
-    }
-    if (userSections.includes(sectionId) || sharedProtectedSections.includes(sectionId)) {
-      showToast('Please sign in to access your portal.', 'info');
-      switchSection('user-login');
-      return;
-    }
-  }
-
-  // Role-based redirects for authenticated users
-  if (isAuth) {
-    if (role === 'USER' && (adminOnlySections.includes(sectionId) || adminStaffSections.includes(sectionId))) {
-      showToast('Access denied. Redirecting to patient portal.', 'error');
-      switchSection('user-dashboard');
-      return;
-    }
-    if ((role === 'ADMIN' || role === 'STAFF') && userSections.includes(sectionId)) {
-      showToast('Staff use admin portal. Redirecting to dashboard.', 'info');
-      switchSection('dashboard');
-      return;
-    }
-    // Redirect authenticated users away from login/register to their dashboards
-    if (publicSections.includes(sectionId) && sectionId !== 'landing') {
-      switchSection(role === 'USER' ? 'user-dashboard' : 'dashboard');
-      return;
-    }
-  }
-
-  // Toggle app layout sidebar based on section type
-  const appLayout = document.getElementById('app');
-  const mainLayout = document.getElementById('mainLayout');
-  const headerBar = document.getElementById('appHeader');
-  const portalSections = ['landing', 'admin-login', 'user-login', 'register'];
-
-  if (portalSections.includes(sectionId)) {
-    if (appLayout) appLayout.classList.add('no-sidebar');
-    if (headerBar) headerBar.style.display = 'none';
-  } else {
-    if (appLayout) appLayout.classList.remove('no-sidebar');
-    if (headerBar) headerBar.style.display = '';
-  }
-
-  const sections = document.querySelectorAll('.content-section');
-  sections.forEach(sec => sec.classList.remove('active'));
-
-  const targetSec = document.getElementById(`section-${sectionId}`);
-  if (targetSec) {
-    targetSec.classList.add('active');
-  }
-
-  // Update Nav Active Links
-  const navLinks = document.querySelectorAll('.nav-link');
-  navLinks.forEach(l => {
-    if (l.getAttribute('data-section') === sectionId) {
-      l.classList.add('active');
-    } else {
-      l.classList.remove('active');
-    }
-  });
-
-  // Update Header Titles
-  const pageTitle = document.getElementById('pageTitle');
-  const pageSubTitle = document.getElementById('pageSubTitle');
-
-  switch (sectionId) {
-    case 'dashboard':
-      if (pageTitle) pageTitle.textContent = 'Dashboard Overview';
-      if (pageSubTitle) pageSubTitle.textContent = 'Real-time hospital bed allocation across departments';
-      break;
-    case 'hospitals':
-      if (pageTitle) pageTitle.textContent = 'Hospital Bed Inventory';
-      if (pageSubTitle) pageSubTitle.textContent = 'Filter, search and manage facility capacities';
-      break;
-    case 'rooms-beds':
-      if (pageTitle) pageTitle.textContent = 'Rooms & Beds Layout';
-      if (pageSubTitle) pageSubTitle.textContent = 'Interactive visual layout of hospital departments';
-      break;
-    case 'patient-admissions':
-      if (pageTitle) pageTitle.textContent = 'Patient Admissions Registry';
-      if (pageSubTitle) pageSubTitle.textContent = 'Monitor current patients, invoices, and stay timelines';
-      renderAdminBookingsTable();
-      break;
-    case 'book-bed':
-      if (pageTitle) pageTitle.textContent = 'Patient Bed Booking';
-      if (pageSubTitle) pageSubTitle.textContent = 'Register a new patient admission and calculate tariff costs';
-      break;
-    case 'reports':
-      if (pageTitle) pageTitle.textContent = 'Financial & Admission Reports';
-      if (pageSubTitle) pageSubTitle.textContent = 'Summary of cashflow yields and department distribution';
-      break;
-    case 'add-hospital':
-      if (pageTitle) pageTitle.textContent = 'Add Hospital Record';
-      if (pageSubTitle) pageSubTitle.textContent = 'Create a new medical facility entry in Firestore';
-      break;
-    case 'about':
-      if (pageTitle) pageTitle.textContent = 'System & Architecture';
-      if (pageSubTitle) pageSubTitle.textContent = 'Cloud application structure, rules and configuration';
-      break;
-    case 'user-dashboard':
-      if (pageTitle) pageTitle.textContent = 'Patient Portal';
-      if (pageSubTitle) pageSubTitle.textContent = 'Find hospitals and check bed availability near you';
-      renderUserHospitalGrid();
-      break;
-    case 'user-available-beds':
-      if (pageTitle) pageTitle.textContent = 'Available Beds';
-      if (pageSubTitle) pageSubTitle.textContent = 'Browse available beds and submit a booking request';
-      renderUserAvailableBeds();
-      break;
-    case 'user-my-bookings':
-      if (pageTitle) pageTitle.textContent = 'My Bookings';
-      if (pageSubTitle) pageSubTitle.textContent = 'View status of your bed booking requests';
-      renderUserMyBookings();
-      break;
-  }
-
-  window.location.hash = `#${sectionId}`;
-}
-
-// ================= Render Views =================
-function renderAllViews() {
-  const role = getCurrentUserRole();
-  updateDashboard(allHospitals, allBookings);
-  renderHospitalsTable();
-  renderRoomsBedsPage();
-  if (role === 'ADMIN' || role === 'STAFF') {
-    renderPatientAdmissionsTable();
-    renderAdminBookingsTable();
-  } else if (role === 'USER') {
-    renderUserHospitalGrid();
-    renderUserAvailableBeds();
-    renderUserMyBookings();
-  }
-}
-
-function populateHospitalDropdowns() {
-  const roomHospFilter = document.getElementById('roomHospitalFilter');
-  const bookHospSelect = document.getElementById('bookHospital');
-  const userHospSelect = document.getElementById('userHospSelect');
-  const userLocFilter = document.getElementById('userLocationFilter');
-
-  if (roomHospFilter) {
-    const prevVal = roomHospFilter.value;
-    roomHospFilter.innerHTML = allHospitals.map(h => 
-      `<option value="${h.id}">${escapeHtml(h.hospitalName)} (${escapeHtml(h.department)})</option>`
-    ).join('');
-    if (prevVal && allHospitals.some(h => h.id === prevVal)) {
-      roomHospFilter.value = prevVal;
-    }
-  }
-
-  if (bookHospSelect) {
-    const prevVal = bookHospSelect.value;
-    bookHospSelect.innerHTML = '<option value="">Select Hospital...</option>' + 
-      allHospitals.map(h => `<option value="${h.id}">${escapeHtml(h.hospitalName)} (${escapeHtml(h.department)})</option>`).join('');
-    if (prevVal && allHospitals.some(h => h.id === prevVal)) {
-      bookHospSelect.value = prevVal;
-    }
-  }
-
-  if (userHospSelect) {
-    const prevVal = userHospSelect.value;
-    userHospSelect.innerHTML = '<option value="">Select a Hospital...</option>' +
-      allHospitals.map(h => `<option value="${h.id}">${escapeHtml(h.hospitalName)} – ${escapeHtml(h.department)}</option>`).join('');
-    if (prevVal && allHospitals.some(h => h.id === prevVal)) {
-      userHospSelect.value = prevVal;
-    }
-  }
-
-  if (userLocFilter) {
-    const prevVal = userLocFilter.value;
-    const locations = [...new Set(allHospitals.map(h => h.location).filter(Boolean))];
-    userLocFilter.innerHTML = '<option value="All">All Locations</option>' +
-      locations.map(loc => `<option value="${loc}">${escapeHtml(loc)}</option>`).join('');
-    if (prevVal && locations.includes(prevVal)) {
-      userLocFilter.value = prevVal;
-    }
-  }
-}
-
-function renderHospitalsTable() {
-  const tbody = document.getElementById('hospitalsTableBody');
-  const recordCountBadge = document.getElementById('recordCountBadge');
-  const emptyState = document.getElementById('emptyState');
-  if (!tbody) return;
-
-  const searchVal = (document.getElementById('searchInput')?.value || '').toLowerCase().trim();
-  const filterDept = document.getElementById('departmentFilter')?.value || 'All';
-  const filterStatus = document.getElementById('statusFilter')?.value || 'All';
-  const sortOption = document.getElementById('sortFilter')?.value || 'hospitalName|asc';
-
-  let filtered = allHospitals.filter(h => {
-    const matchesSearch = !searchVal || 
-      (h.hospitalName && h.hospitalName.toLowerCase().includes(searchVal)) ||
-      (h.location && h.location.toLowerCase().includes(searchVal));
-    const matchesDept = filterDept === 'All' || h.department === filterDept;
-    const matchesStatus = filterStatus === 'All' || h.status === filterStatus;
-    return matchesSearch && matchesDept && matchesStatus;
-  });
-
-  // Sort Array
-  const [sortKey, sortOrder] = sortOption.split('|');
-  filtered.sort((a, b) => {
-    let valA = a[sortKey];
-    let valB = b[sortKey];
-
-    if (typeof valA === 'string') {
-      valA = valA.toLowerCase();
-      valB = valB.toLowerCase();
-    } else {
-      valA = parseInt(valA, 10) || 0;
-      valB = parseInt(valB, 10) || 0;
+    if (this.activeFilter === 'ANOMALIES') {
+      items = items.filter(i => i.live.active_signals && i.live.active_signals.length > 0);
+    } else if (this.activeFilter === 'VOLUME') {
+      items = items.filter(i => i.live.volume_z_score >= 2.0);
+    } else if (this.activeFilter === 'EARNINGS') {
+      items = items.filter(i => i.live.active_signals && i.live.active_signals.some(s => s.type === 'EARNINGS_PROXIMITY'));
+    } else if (this.activeFilter === 'GAINERS') {
+      items = items.filter(i => i.live.change_pct > 0).sort((a, b) => b.live.change_pct - a.live.change_pct);
+    } else if (this.activeFilter === 'LOSERS') {
+      items = items.filter(i => i.live.change_pct < 0).sort((a, b) => a.live.change_pct - b.live.change_pct);
     }
 
-    if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
-    if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
-    return 0;
-  });
-
-  if (recordCountBadge) {
-    recordCountBadge.textContent = `Showing ${filtered.length} of ${allHospitals.length} Hospitals`;
+    return items;
   }
 
-  if (filtered.length === 0) {
-    tbody.innerHTML = '';
-    if (emptyState) emptyState.classList.remove('hidden');
-    return;
-  } else {
-    if (emptyState) emptyState.classList.add('hidden');
+  formatINR(num) {
+    return Number(num || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  const isAuth = isAuthenticated();
+  renderSparklineSVG(points, isPositive) {
+    if (!points || points.length < 2) return '';
+    const width = 75;
+    const height = 28;
+    const min = Math.min(...points);
+    const max = Math.max(...points);
+    const range = (max - min) || 1;
 
-  tbody.innerHTML = filtered.map(h => {
-    const badgeClass = getBadgeClass(h.status);
-    const updatedTime = formatRelativeTime(h.updatedAt);
+    const coords = points.map((p, i) => {
+      const x = (i / (points.length - 1)) * width;
+      const y = height - ((p - min) / range) * (height - 6) - 3;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+
+    const pathData = coords.join(' ');
+    const strokeColor = isPositive ? '#047857' : '#be123c';
 
     return `
-      <tr data-id="${h.id}" class="align-middle">
-        <td data-label="Hospital"><strong>${escapeHtml(h.hospitalName)}</strong></td>
-        <td data-label="Location">${escapeHtml(h.location)}</td>
-        <td data-label="Department"><span class="badge badge-subtle">${escapeHtml(h.department)}</span></td>
-        <td data-label="Total Beds">${h.totalBeds}</td>
-        <td data-label="Occupied">
-          <div class="d-flex items-center gap-1">
-            <span>${h.occupiedBeds}</span>
-            ${isAuth ? `<button class="action-icon-btn btn-xs quick-step-btn" data-id="${h.id}" data-name="${escapeHtml(h.hospitalName)}" data-total="${h.totalBeds}" data-occupied="${h.occupiedBeds}" title="Quick Update Occupied Beds">&#9998;</button>` : ''}
-          </div>
-        </td>
-        <td data-label="Available"><strong class="text-emerald" style="color: var(--accent-emerald);">${h.availableBeds}</strong></td>
-        <td data-label="Status"><span class="badge ${badgeClass}">${h.status}</span></td>
-        <td data-label="Last Updated" class="text-muted text-sm">${updatedTime}</td>
-        <td data-label="Actions" class="text-right">
-          ${isAuth ? `
-            <button class="action-icon-btn edit edit-btn" data-id="${h.id}" title="Edit Record">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-            </button>
-            <button class="action-icon-btn delete delete-btn" data-id="${h.id}" data-name="${escapeHtml(h.hospitalName)}" title="Delete Record">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-            </button>
-          ` : `
-            <span class="text-muted text-xs">Read Only</span>
-          `}
-        </td>
-      </tr>
+      <svg class="sparkline-svg" viewBox="0 0 ${width} ${height}">
+        <polyline fill="none" stroke="${strokeColor}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" points="${pathData}" />
+      </svg>
     `;
-  }).join('');
-
-  attachTableEventHandlers();
-}
-
-function attachTableEventHandlers() {
-  document.querySelectorAll('.edit-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = btn.getAttribute('data-id');
-      const record = allHospitals.find(item => item.id === id);
-      if (record) populateFormForEdit(record);
-    });
-  });
-
-  document.querySelectorAll('.delete-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = btn.getAttribute('data-id');
-      const name = btn.getAttribute('data-name');
-      openDeleteModal(id, name);
-    });
-  });
-
-  document.querySelectorAll('.quick-step-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = btn.getAttribute('data-id');
-      const name = btn.getAttribute('data-name');
-      const total = parseInt(btn.getAttribute('data-total'), 10);
-      const occupied = parseInt(btn.getAttribute('data-occupied'), 10);
-      openStepBedsModal(id, name, total, occupied);
-    });
-  });
-}
-
-// ================= Rooms & Beds Visual Layout Redesign =================
-function renderRoomsBedsPage() {
-  const container = document.getElementById('roomsVisualContainer');
-  const roomHospFilter = document.getElementById('roomHospitalFilter');
-  const roomTypeFilter = document.getElementById('roomTypeFilter');
-  const bedStatusFilter = document.getElementById('bedStatusFilter');
-  if (!container || !roomHospFilter) return;
-
-  const selectedHospId = roomHospFilter.value;
-  const selectedRoomType = roomTypeFilter ? roomTypeFilter.value : 'All';
-  const selectedBedStatus = bedStatusFilter ? bedStatusFilter.value : 'All';
-
-  if (!selectedHospId) {
-    container.innerHTML = `<div class="text-center text-muted col-span-2 py-4">Please seed or select a hospital facility to view room layout.</div>`;
-    return;
   }
 
-  const hospital = allHospitals.find(h => h.id === selectedHospId);
-  if (!hospital) {
-    container.innerHTML = `<div class="text-center text-muted col-span-2 py-4">Facility not found.</div>`;
-    return;
-  }
+  // --- Main Render Dispatcher ---
 
-  // Get Room lists deterministically from service
-  const roomsList = getRoomsAndBedsForHospital(hospital, allBookings);
+  render() {
+    const appElem = document.getElementById('app');
+    if (!appElem) return;
 
-  // Group Rooms by Room Type / Category
-  const groupedRooms = {};
-  roomsList.forEach(r => {
-    if (selectedRoomType !== 'All' && r.roomType !== selectedRoomType) return;
-    
-    // Apply bed status filtering inside the room beds
-    const filteredBeds = r.beds.filter(b => selectedBedStatus === 'All' || b.status === selectedBedStatus);
-    if (selectedBedStatus !== 'All' && filteredBeds.length === 0) return;
-
-    if (!groupedRooms[r.roomType]) {
-      groupedRooms[r.roomType] = [];
+    if (!this.token || !this.user) {
+      if (this.currentView === 'register') {
+        appElem.innerHTML = this.renderDedicatedRegisterPage();
+        this.attachRegisterPageEvents();
+      } else {
+        appElem.innerHTML = this.renderDedicatedLoginPage();
+        this.attachLoginPageEvents();
+      }
+      return;
     }
-    
-    groupedRooms[r.roomType].push({
-      ...r,
-      beds: filteredBeds
-    });
-  });
 
-  const groupKeys = Object.keys(groupedRooms);
-  if (groupKeys.length === 0) {
-    container.innerHTML = `<div class="text-center text-muted col-span-2 py-4">No rooms match the selected criteria.</div>`;
-    return;
+    appElem.innerHTML = `
+      ${this.renderNavbar()}
+      ${this.renderIndicesBar()}
+      <main class="dashboard-main">
+        ${this.renderWatchlistControls()}
+        ${this.renderWatchlistTable()}
+      </main>
+      ${this.renderContextDrawer()}
+      ${this.renderCreateWlModal()}
+      ${this.renderChaosToolkit()}
+    `;
+
+    this.attachDashboardEvents();
   }
 
-  container.innerHTML = groupKeys.map(category => {
-    const roomsHtml = groupedRooms[category].map(r => {
-      const bedsHtml = r.beds.map(b => {
-        const isOcc = b.status === 'Occupied';
-        const statusClass = isOcc ? 'occupied' : 'available';
-        const buttonText = isOcc ? 'Occupied' : 'Book Bed';
+  // --- Dedicated Registration Page ---
 
-        return `
-          <div class="bed-card-slot ${statusClass}">
-            <div class="bed-slot-info">
-              <span class="bed-slot-name">Bed ${b.bedNumber}</span>
-              <span class="bed-slot-type">${escapeHtml(r.roomType)}</span>
-            </div>
-            <button class="bed-slot-action-btn ${statusClass}"
-                    data-room="${r.roomNumber}" 
-                    data-bed="${b.bedNumber}" 
-                    data-type="${r.roomType}"
-                    data-hosp-id="${hospital.id}"
-                    data-hosp-name="${escapeHtml(hospital.hospitalName)}"
-                    data-dept="${escapeHtml(hospital.department)}"
-                    data-status="${b.status}"
-                    data-booking-id="${b.bookingId || ''}">
-              ${buttonText}
-            </button>
-          </div>
-        `;
-      }).join('');
-
-      return `
-        <div class="room-card">
-          <div class="room-card-header">
-            <div>
-              <span class="room-card-title">Room ${r.roomNumber}</span>
-              <span class="room-meta">${escapeHtml(hospital.hospitalName)}</span>
-            </div>
-            <span class="room-card-price">₹${r.costPerDay.toLocaleString()}/day</span>
-          </div>
-          <div class="beds-container">
-            ${bedsHtml}
-          </div>
-        </div>
-      `;
-    }).join('');
+  renderDedicatedRegisterPage() {
+    const availableSectors = [
+      'Technology',
+      'Banking & Financials',
+      'Automobile',
+      'Consumer / FMCG',
+      'Power & Green Energy',
+      'Metals & Mining',
+      'Healthcare & Pharma',
+      'Fintech & Digital'
+    ];
 
     return `
-      <div class="room-type-group">
-        <div class="room-type-group-header">
-          <h3>
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-            <span>${escapeHtml(category)} Category</span>
-          </h3>
-          <span class="badge badge-subtle">${groupedRooms[category].length} Rooms</span>
-        </div>
-        <div class="room-cards-container">
-          ${roomsHtml}
+      <div class="register-page-wrapper">
+        <div class="auth-card" style="max-width: 520px;">
+          <div class="auth-header">
+            <div class="brand-logo" style="width: 48px; height: 48px; margin-bottom: 0.5rem;">
+              <svg viewBox="0 0 24 24"><path d="M3 13h4l3-8 4 16 3-8h4"/></svg>
+            </div>
+            <h1 style="font-size: 1.5rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.25rem;">
+              Create Your PulseWatch Account
+            </h1>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">
+              Sign up to configure your smart watchlists with 500ms real-time telemetry.
+            </p>
+          </div>
+
+          <!-- Highlighted Judge 1-Click Access -->
+          <div class="demo-access-banner">
+            <span style="font-size: 0.8rem; font-weight: 700; color: var(--brand-primary);">
+              👩‍💻 EVALUATOR / JUDGE QUICK ACCESS
+            </span>
+            <p style="font-size: 0.75rem; color: var(--text-secondary);">
+              Skip registration to test as Priya Sharma (Demo Investor) with 3 pre-seeded watchlists and notes.
+            </p>
+            <button class="btn-judge-demo" id="btn-demo-from-reg" style="width: 100%;">
+              <span>🚀</span>
+              <span>1-Click Judge Demo Login</span>
+            </button>
+          </div>
+
+          ${this.authError ? `
+            <div style="padding: 0.75rem; background-color: var(--loss-bg); border: 1px solid var(--loss-border); border-radius: var(--radius-sm); font-size: 0.85rem; color: var(--loss-color);">
+              ${this.authError}
+            </div>
+          ` : ''}
+
+          <form id="dedicated-register-form" style="display: flex; flex-direction: column; gap: 1rem;">
+            <div class="form-group">
+              <label class="form-label">Full Name</label>
+              <input type="text" id="reg-name" class="form-input" placeholder="e.g. Ananya Verma" required />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Work or Personal Email</label>
+              <input type="email" id="reg-email" class="form-input" placeholder="ananya@investor.in" required />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Password</label>
+              <input type="password" id="reg-password" class="form-input" placeholder="Create a secure password" required />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Investment Profile & Experience</label>
+              <select id="reg-experience" class="form-input" style="cursor: pointer;">
+                <option value="Active Trader (Intraday/Swing)">Active Trader (Intraday / Momentum)</option>
+                <option value="Fundamental Compounder" selected>Fundamental Investor (Long Term Compounders)</option>
+                <option value="Quantitative Researcher">Quantitative Researcher / Algorithmic</option>
+                <option value="Emerging Retail Investor">Emerging Retail Investor (Learning Markets)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Select Sectors of Interest (For tailored initial watchlist)</label>
+              <div class="sector-chips-grid">
+                ${availableSectors.map(sec => `
+                  <button type="button" class="sector-picker-chip ${this.selectedRegisterSectors.includes(sec) ? 'selected' : ''}" data-sector="${sec}">
+                    ${sec}
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+
+            <button type="submit" class="btn-primary" style="padding: 0.85rem; font-size: 0.95rem; margin-top: 0.5rem;">
+              Create Account & Launch Watchlist ➔
+            </button>
+          </form>
+
+          <div style="text-align: center; margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);">
+            Already have an account? 
+            <button id="btn-switch-to-login" style="background: none; border: none; color: var(--brand-primary); font-weight: 700; cursor: pointer; text-decoration: underline; margin-left: 0.25rem;">
+              Sign In
+            </button>
+          </div>
         </div>
       </div>
     `;
-  }).join('');
-
-  // Attach bed slot button event handlers
-  document.querySelectorAll('.bed-slot-action-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const status = btn.getAttribute('data-status');
-      const hospId = btn.getAttribute('data-hosp-id');
-      const hospName = btn.getAttribute('data-hosp-name');
-      const dept = btn.getAttribute('data-dept');
-      const roomNum = btn.getAttribute('data-room');
-      const bedNum = btn.getAttribute('data-bed');
-      const roomType = btn.getAttribute('data-type');
-      const bookingId = btn.getAttribute('data-booking-id');
-
-      if (status === 'Available') {
-        if (!isAuthenticated()) {
-          showToast('Admin login required to book patient beds.', 'info');
-          openAuthModal();
-        } else {
-          prepopulateBookingForm(hospId, dept, roomType, roomNum, bedNum);
-          switchSection('book-bed');
-        }
-      } else {
-        if (isAuthenticated() && bookingId) {
-          const booking = allBookings.find(b => b.id === bookingId);
-          if (booking) {
-            openPatientDetailsDrawer(booking);
-          }
-        } else {
-          showToast(`Bed ${bedNum} is currently occupied by a patient.`, 'info');
-        }
-      }
-    });
-  });
-}
-
-// Prepopulate booking fields
-function prepopulateBookingForm(hospId, dept, roomType, roomNumber, bedNumber) {
-  isPrepopulating = true;
-  const bookHosp = document.getElementById('bookHospital');
-  const bookDept = document.getElementById('bookDepartment');
-  const bookRoomType = document.getElementById('bookRoomType');
-  const bookRoomNumber = document.getElementById('bookRoomNumber');
-
-  if (bookHosp) bookHosp.value = hospId;
-  triggerBookingCascadeOptions(hospId, dept, roomType, roomNumber, bedNumber);
-}
-
-// ================= Patient Admissions Registry =================
-function renderPatientAdmissionsTable() {
-  const tbody = document.getElementById('admissionsTableBody');
-  if (!tbody) return;
-
-  const searchVal = (document.getElementById('patientSearchInput')?.value || '').toLowerCase().trim();
-  const filterStatus = document.getElementById('bookingStatusFilter')?.value || 'All';
-
-  const filtered = allBookings.filter(b => {
-    const matchesSearch = !searchVal || 
-      (b.patientName && b.patientName.toLowerCase().includes(searchVal)) ||
-      (b.patientId && b.patientId.toLowerCase().includes(searchVal));
-    const matchesStatus = filterStatus === 'All' || b.bookingStatus === filterStatus;
-    return matchesSearch && matchesStatus;
-  });
-
-  if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-muted">No patient admissions match filter criteria.</td></tr>`;
-    return;
   }
 
-  const isAuth = isAuthenticated();
+  // --- Dedicated Login Page ---
 
-  tbody.innerHTML = filtered.map(b => {
-    const statusColors = {
-      'Admitted': 'badge-available',
-      'Pending': 'badge-warning',
-      'Discharged': 'badge-subtle',
-      'Cancelled': 'badge-critical'
-    };
-    const statusClass = statusColors[b.bookingStatus] || 'badge-subtle';
-    const isAdmitted = b.bookingStatus === 'Admitted';
-    const dischargeText = isAdmitted ? `Exp: ${b.expectedDischargeDate}` : `Act: ${b.actualDischargeDate || b.expectedDischargeDate}`;
-    
+  renderDedicatedLoginPage() {
     return `
-      <tr class="align-middle clickable-row" data-id="${b.id}" style="cursor: pointer;">
-        <td data-label="Patient Details">
-          <div style="display:flex; flex-direction:column;">
-            <strong>${escapeHtml(b.patientName)}</strong>
-            <span class="text-muted text-xs">ID: ${escapeHtml(b.patientId)} | Age: ${b.age} | ${escapeHtml(b.gender)}</span>
+      <div class="register-page-wrapper">
+        <div class="auth-card" style="max-width: 460px;">
+          <div class="auth-header">
+            <div class="brand-logo" style="width: 48px; height: 48px; margin-bottom: 0.5rem;">
+              <svg viewBox="0 0 24 24"><path d="M3 13h4l3-8 4 16 3-8h4"/></svg>
+            </div>
+            <h1 style="font-size: 1.5rem; font-weight: 800;">Welcome Back</h1>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">
+              Sign in to access your smart watchlists with 500ms live telemetry.
+            </p>
           </div>
-        </td>
-        <td data-label="Allocation">
-          <div style="display:flex; flex-direction:column;">
-            <strong>${escapeHtml(b.hospitalName)}</strong>
-            <span class="text-muted text-xs">${escapeHtml(b.department)} | Room ${b.roomNumber} - Bed ${b.bedNumber}</span>
+
+          <!-- Highlighted Judge 1-Click Access -->
+          <div class="demo-access-banner">
+            <span style="font-size: 0.8rem; font-weight: 700; color: var(--brand-primary);">
+              👩‍💻 EVALUATOR QUICK ACCESS
+            </span>
+            <p style="font-size: 0.75rem; color: var(--text-secondary);">
+              Log in instantly as Priya Sharma with 3 pre-seeded watchlists and notes.
+            </p>
+            <button class="btn-judge-demo" id="btn-demo-from-login">
+              <span>🚀</span>
+              <span>1-Click Judge Demo Login</span>
+            </button>
           </div>
-        </td>
-        <td data-label="Dates">
-          <div style="display:flex; flex-direction:column; font-size:0.8rem;">
-            <span>Adm: ${b.admissionDate}</span>
-            <span class="text-muted font-semibold">${dischargeText}</span>
+
+          ${this.authError ? `
+            <div style="padding: 0.75rem; background-color: var(--loss-bg); border: 1px solid var(--loss-border); border-radius: var(--radius-sm); font-size: 0.85rem; color: var(--loss-color);">
+              ${this.authError}
+            </div>
+          ` : ''}
+
+          <form id="dedicated-login-form" style="display: flex; flex-direction: column; gap: 1rem;">
+            <div class="form-group">
+              <label class="form-label">Email Address</label>
+              <input type="email" id="login-email" class="form-input" placeholder="demo@groww.in" required value="demo@groww.in" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Password</label>
+              <input type="password" id="login-password" class="form-input" placeholder="••••••••" required value="groww123" />
+            </div>
+
+            <button type="submit" class="btn-primary" style="padding: 0.85rem; font-size: 0.95rem; margin-top: 0.5rem;">
+              Sign In to PulseWatch
+            </button>
+          </form>
+
+          <div style="text-align: center; font-size: 0.85rem; color: var(--text-secondary);">
+            Don't have an account yet? 
+            <button id="btn-switch-to-register" style="background: none; border: none; color: var(--brand-primary); font-weight: 700; cursor: pointer; text-decoration: underline; margin-left: 0.25rem;">
+              Create Free Account
+            </button>
           </div>
-        </td>
-        <td data-label="Tariff Details">
-          <div style="display:flex; flex-direction:column; font-size:0.8rem;">
-            <span>₹${(b.costPerDay||0).toLocaleString()}/day (${b.numberOfDays} days)</span>
-            <strong style="color:var(--primary);">Est: ₹${(b.estimatedCost||0).toLocaleString()}</strong>
-          </div>
-        </td>
-        <td data-label="Status">
-          <span class="badge ${statusClass}">${b.bookingStatus}</span>
-        </td>
-        <td data-label="Action" class="text-right" onclick="event.stopPropagation();">
-          ${isAdmitted ? `
-            <button class="btn btn-outline-danger btn-xs discharge-btn" data-id="${b.id}">Discharge</button>
-          ` : `
-            <span class="text-muted text-xs">Processed</span>
-          `}
-        </td>
-      </tr>
+        </div>
+      </div>
     `;
-  }).join('');
-
-  // Row click opens detailed slide-out panel
-  document.querySelectorAll('.clickable-row').forEach(row => {
-    row.addEventListener('click', () => {
-      const id = row.getAttribute('data-id');
-      const booking = allBookings.find(b => b.id === id);
-      if (booking) {
-        openPatientDetailsDrawer(booking);
-      }
-    });
-  });
-
-  // Attach Discharge button handler
-  document.querySelectorAll('.discharge-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const id = btn.getAttribute('data-id');
-      const booking = allBookings.find(b => b.id === id);
-      if (booking) {
-        openDischargeModal(booking);
-      }
-    });
-  });
-}
-
-// ================= Booking Select Cascade Logic =================
-function triggerBookingCascadeOptions(hospId, targetDept, targetRoomType, targetRoomNumber, targetBedNumber) {
-  const bookDept = document.getElementById('bookDepartment');
-  const bookRoomType = document.getElementById('bookRoomType');
-  const bookRoomNumber = document.getElementById('bookRoomNumber');
-
-  if (!hospId) {
-    if (bookDept) bookDept.innerHTML = '<option value="">Select Department...</option>';
-    if (bookRoomNumber) bookRoomNumber.innerHTML = '<option value="">Select Bed Slot...</option>';
-    return;
   }
 
-  const hospital = allHospitals.find(h => h.id === hospId);
-  if (hospital) {
-    if (bookDept) {
-      bookDept.innerHTML = `<option value="${hospital.department}">${escapeHtml(hospital.department)}</option>`;
-      bookDept.value = hospital.department;
-    }
+  // --- Navbar ---
 
-    if (targetRoomType && bookRoomType) {
-      bookRoomType.value = targetRoomType;
-    }
-
-    populateBedsSelector(hospital, bookRoomType.value, targetRoomNumber, targetBedNumber);
-  }
-}
-
-function populateBedsSelector(hospital, roomType, targetRoom, targetBed) {
-  const bookRoomNumber = document.getElementById('bookRoomNumber');
-  if (!bookRoomNumber) return;
-
-  if (!roomType) {
-    bookRoomNumber.innerHTML = '<option value="">Select Bed Slot...</option>';
-    return;
-  }
-
-  const rooms = getRoomsAndBedsForHospital(hospital, allBookings);
-  const matchingRooms = rooms.filter(r => r.roomType === roomType);
-
-  let optionsHtml = '<option value="">Select Bed Slot...</option>';
-  matchingRooms.forEach(r => {
-    r.beds.forEach(b => {
-      const isCurrentTarget = targetRoom && targetRoom.toString() === r.roomNumber.toString() && targetBed === b.bedNumber;
-      if (b.status === 'Available' || isCurrentTarget) {
-        optionsHtml += `<option value="${r.roomNumber}|${b.bedNumber}" ${isCurrentTarget ? 'selected' : ''}>Room ${r.roomNumber} - Bed ${b.bedNumber}</option>`;
-      }
-    });
-  });
-
-  bookRoomNumber.innerHTML = optionsHtml;
-}
-
-// ================= Setup Booking Live Calculator =================
-function setupBookingFormCalculator() {
-  const bookHosp = document.getElementById('bookHospital');
-  const bookRoomType = document.getElementById('bookRoomType');
-  const bookRoomNumber = document.getElementById('bookRoomNumber');
-  const admissionDateInput = document.getElementById('admissionDate');
-  const expectedDischargeDateInput = document.getElementById('expectedDischargeDate');
-
-  // Set default dates
-  const today = new Date();
-  const tomorrow = new Date();
-  tomorrow.setDate(today.getDate() + 1);
-
-  if (admissionDateInput && !admissionDateInput.value) {
-    admissionDateInput.value = today.toISOString().split('T')[0];
-  }
-  if (expectedDischargeDateInput && !expectedDischargeDateInput.value) {
-    expectedDischargeDateInput.value = tomorrow.toISOString().split('T')[0];
-  }
-
-  const recalculateBookingCost = () => {
-    const selectedType = bookRoomType ? bookRoomType.value : '';
-    const admStr = admissionDateInput ? admissionDateInput.value : '';
-    const disStr = expectedDischargeDateInput ? expectedDischargeDateInput.value : '';
-
-    const costPerDay = ROOM_TARIFFS[selectedType] || 0;
-    
-    document.getElementById('bookingCostPerDay').textContent = `₹${costPerDay.toLocaleString()}`;
-
-    if (admStr && disStr) {
-      const adm = new Date(admStr);
-      const dis = new Date(disStr);
-      if (dis >= adm) {
-        const diffTime = Math.abs(dis - adm);
-        const diffDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-        const total = diffDays * costPerDay;
-
-        document.getElementById('bookingDuration').textContent = `${diffDays} Day${diffDays > 1 ? 's' : ''}`;
-        document.getElementById('bookingEstimatedTotal').textContent = `₹${total.toLocaleString()}`;
-        return;
-      }
-    }
-    document.getElementById('bookingDuration').textContent = `0 Days`;
-    document.getElementById('bookingEstimatedTotal').textContent = `₹0`;
-  };
-
-  window.recalculateBookingCost = recalculateBookingCost;
-
-  if (bookHosp) {
-    bookHosp.addEventListener('change', () => {
-      triggerBookingCascadeOptions(bookHosp.value);
-      recalculateBookingCost();
-    });
-  }
-
-  if (bookRoomType) {
-    bookRoomType.addEventListener('change', () => {
-      const hospital = allHospitals.find(h => h.id === bookHosp.value);
-      if (hospital) {
-        populateBedsSelector(hospital, bookRoomType.value);
-      }
-      recalculateBookingCost();
-    });
-  }
-
-  if (admissionDateInput) admissionDateInput.addEventListener('change', recalculateBookingCost);
-  if (expectedDischargeDateInput) expectedDischargeDateInput.addEventListener('change', recalculateBookingCost);
-}
-
-// ================= Booking Wizard Navigation =================
-function setupBookingWizard() {
-  let currentStep = 1;
-
-  const prevBtn = document.getElementById('prevStepBtn');
-  const nextBtn = document.getElementById('nextStepBtn');
-  const submitBtn = document.getElementById('bookSubmitBtn');
-
-  const showStep = (step) => {
-    currentStep = step;
-    
-    // Show active panel, hide others
-    document.querySelectorAll('#bookingForm .wizard-panel').forEach(panel => {
-      panel.classList.remove('active');
-    });
-    const activePanel = document.getElementById(`wizardPanel-${step}`);
-    if (activePanel) activePanel.classList.add('active');
-
-    // Update indicator tabs
-    document.querySelectorAll('#section-book-bed .wizard-step-item').forEach(indicator => {
-      const idx = parseInt(indicator.getAttribute('data-step'), 10) || 1;
-      if (idx === step) {
-        indicator.className = 'wizard-step-item active';
-      } else if (idx < step) {
-        indicator.className = 'wizard-step-item completed';
-      } else {
-        indicator.className = 'wizard-step-item';
-      }
-    });
-
-    // Handle navigation buttons
-    if (prevBtn) prevBtn.disabled = (step === 1);
-    
-    if (step === 4) {
-      if (nextBtn) nextBtn.classList.add('hidden');
-      if (submitBtn) submitBtn.classList.remove('hidden');
-      if (window.recalculateBookingCost) {
-        window.recalculateBookingCost();
-      }
-    } else {
-      if (nextBtn) nextBtn.classList.remove('hidden');
-      if (submitBtn) submitBtn.classList.add('hidden');
-    }
-  };
-
-  const validateStep = (step) => {
-    let isValid = true;
-    clearBookingFormErrors();
-
-    if (step === 1) {
-      const name = document.getElementById('patientName');
-      const patId = document.getElementById('patientId');
-      const age = document.getElementById('patientAge');
-      const gender = document.getElementById('patientGender');
-      const phone = document.getElementById('patientPhone');
-      const emergency = document.getElementById('patientEmergencyContact');
-
-      if (!name || !name.value.trim()) {
-        showFieldError('patientName', 'Full Name is required.');
-        isValid = false;
-      }
-      if (!patId || !patId.value.trim()) {
-        showFieldError('patientId', 'Patient ID is required.');
-        isValid = false;
-      }
-      if (!age || !age.value || parseInt(age.value) < 0 || parseInt(age.value) > 150) {
-        showFieldError('patientAge', 'Please enter a valid age (0-150).');
-        isValid = false;
-      }
-      if (!gender || !gender.value) {
-        showFieldError('patientGender', 'Gender selection is required.');
-        isValid = false;
-      }
-      if (!phone || !phone.value.trim()) {
-        showFieldError('patientPhone', 'Phone Number is required.');
-        isValid = false;
-      }
-      if (!emergency || !emergency.value.trim()) {
-        showFieldError('patientEmergencyContact', 'Emergency Contact is required.');
-        isValid = false;
-      }
-    } else if (step === 2) {
-      const hosp = document.getElementById('bookHospital');
-      const dept = document.getElementById('bookDepartment');
-      const roomType = document.getElementById('bookRoomType');
-      const roomNum = document.getElementById('bookRoomNumber');
-
-      if (!hosp || !hosp.value) {
-        showFieldError('bookHospital', 'Hospital selection is required.');
-        isValid = false;
-      }
-      if (!dept || !dept.value) {
-        showFieldError('bookDepartment', 'Department selection is required.');
-        isValid = false;
-      }
-      if (!roomType || !roomType.value) {
-        showFieldError('bookRoomType', 'Room Category is required.');
-        isValid = false;
-      }
-      if (!roomNum || !roomNum.value) {
-        showFieldError('bookRoomNumber', 'Room & Bed Slot is required.');
-        isValid = false;
-      }
-    } else if (step === 3) {
-      const admStr = document.getElementById('admissionDate').value;
-      const disStr = document.getElementById('expectedDischargeDate').value;
-
-      if (!admStr) {
-        showFieldError('admissionDate', 'Admission Date is required.');
-        isValid = false;
-      }
-      if (!disStr) {
-        showFieldError('expectedDischargeDate', 'Expected Discharge Date is required.');
-        isValid = false;
-      }
-      if (admStr && disStr) {
-        const adm = new Date(admStr);
-        const dis = new Date(disStr);
-        if (dis < adm) {
-          showFieldError('expectedDischargeDate', 'Discharge date cannot be before admission date.');
-          isValid = false;
-        }
-      }
-    }
-    return isValid;
-  };
-
-  const showFieldError = (fieldId, errMsg) => {
-    const field = document.getElementById(fieldId);
-    if (field) field.classList.add('is-invalid');
-    const feedback = document.getElementById(`err-${fieldId}`);
-    if (feedback) feedback.textContent = errMsg;
-  };
-
-  if (nextBtn) {
-    nextBtn.addEventListener('click', () => {
-      if (validateStep(currentStep)) {
-        showStep(currentStep + 1);
-      }
-    });
-  }
-
-  if (prevBtn) {
-    prevBtn.addEventListener('click', () => {
-      if (currentStep > 1) {
-        showStep(currentStep - 1);
-      }
-    });
-  }
-
-  // Expose reset trigger on form entry
-  window.resetBookingWizard = (keepFormValues = false) => {
-    if (!keepFormValues) {
-      const bookingForm = document.getElementById('bookingForm');
-      if (bookingForm) bookingForm.reset();
-
-      // Set default dates
-      const today = new Date();
-      const tomorrow = new Date();
-      tomorrow.setDate(today.getDate() + 1);
-
-      const admissionDateInput = document.getElementById('admissionDate');
-      const expectedDischargeDateInput = document.getElementById('expectedDischargeDate');
-      if (admissionDateInput) {
-        admissionDateInput.value = today.toISOString().split('T')[0];
-      }
-      if (expectedDischargeDateInput) {
-        expectedDischargeDateInput.value = tomorrow.toISOString().split('T')[0];
-      }
-    }
-    showStep(1);
-    clearBookingFormErrors();
-    if (window.recalculateBookingCost) {
-      window.recalculateBookingCost();
-    }
-  };
-}
-
-// ================= Search & Filters Registry =================
-function setupSearchAndFilters() {
-  const searchInput = document.getElementById('searchInput');
-  const clearSearchBtn = document.getElementById('clearSearchBtn');
-  const departmentFilter = document.getElementById('departmentFilter');
-  const statusFilter = document.getElementById('statusFilter');
-  const sortFilter = document.getElementById('sortFilter');
-  
-  const addHospitalTopBtn = document.getElementById('addHospitalTopBtn');
-  const seedDataBtn = document.getElementById('seedDataBtn');
-  const seedDataEmptyBtn = document.getElementById('seedDataEmptyBtn');
-  const quickSeedBtn = document.getElementById('quickSeedBtn');
-  const clearDataBtn = document.getElementById('clearDataBtn');
-
-  // Search & Filters for patient bookings
-  const patientSearch = document.getElementById('patientSearchInput');
-  const clearPatientBtn = document.getElementById('clearPatientSearchBtn');
-  const bookingStatusFilter = document.getElementById('bookingStatusFilter');
-
-  // Rooms & Beds controls
-  const roomHospFilter = document.getElementById('roomHospitalFilter');
-  const roomTypeFilter = document.getElementById('roomTypeFilter');
-  const bedStatusFilter = document.getElementById('bedStatusFilter');
-
-  if (searchInput) {
-    searchInput.addEventListener('input', () => {
-      if (clearSearchBtn) {
-        if (searchInput.value.length > 0) clearSearchBtn.classList.remove('hidden');
-        else clearSearchBtn.classList.add('hidden');
-      }
-      renderHospitalsTable();
-    });
-  }
-
-  if (clearSearchBtn) {
-    clearSearchBtn.addEventListener('click', () => {
-      searchInput.value = '';
-      clearSearchBtn.classList.add('hidden');
-      renderHospitalsTable();
-    });
-  }
-
-  if (departmentFilter) departmentFilter.addEventListener('change', renderHospitalsTable);
-  if (statusFilter) statusFilter.addEventListener('change', renderHospitalsTable);
-  if (sortFilter) sortFilter.addEventListener('change', renderHospitalsTable);
-
-  // Patients admissions filters
-  if (patientSearch) {
-    patientSearch.addEventListener('input', () => {
-      if (clearPatientBtn) {
-        if (patientSearch.value.length > 0) clearPatientBtn.classList.remove('hidden');
-        else clearPatientBtn.classList.add('hidden');
-      }
-      renderPatientAdmissionsTable();
-    });
-  }
-
-  if (clearPatientBtn) {
-    clearPatientBtn.addEventListener('click', () => {
-      patientSearch.value = '';
-      clearPatientBtn.classList.add('hidden');
-      renderPatientAdmissionsTable();
-    });
-  }
-
-  if (bookingStatusFilter) {
-    bookingStatusFilter.addEventListener('change', () => {
-      renderPatientAdmissionsTable();
-    });
-  }
-
-  // Rooms & Beds page layout filters
-  if (roomHospFilter) roomHospFilter.addEventListener('change', renderRoomsBedsPage);
-  if (roomTypeFilter) roomTypeFilter.addEventListener('change', renderRoomsBedsPage);
-  if (bedStatusFilter) bedStatusFilter.addEventListener('change', renderRoomsBedsPage);
-
-  // User/Patient dashboard filters
-  const userSearch = document.getElementById('userSearchInput');
-  const userLoc = document.getElementById('userLocationFilter');
-  const userDept = document.getElementById('userDepartmentFilter');
-  const userHospSelect = document.getElementById('userHospSelect');
-  const userBedRoomTypeFilter = document.getElementById('userBedRoomTypeFilter');
-
-  if (userSearch) userSearch.addEventListener('input', renderUserHospitalGrid);
-  if (userLoc) userLoc.addEventListener('change', renderUserHospitalGrid);
-  if (userDept) userDept.addEventListener('change', renderUserHospitalGrid);
-  if (userHospSelect) userHospSelect.addEventListener('change', renderUserAvailableBeds);
-  if (userBedRoomTypeFilter) userBedRoomTypeFilter.addEventListener('change', renderUserAvailableBeds);
-
-  if (addHospitalTopBtn) {
-    addHospitalTopBtn.addEventListener('click', () => {
-      resetForm();
-      switchSection('add-hospital');
-    });
-  }
-
-  const seedHandler = async () => {
-    showToast('Seeding sample hospital records...', 'info');
-    const res = await seedSampleHospitals();
-    if (res.success) {
-      showToast(`Successfully seeded ${res.count} sample hospitals!`, 'success');
-    }
-  };
-
-  if (seedDataBtn) seedDataBtn.addEventListener('click', seedHandler);
-  if (seedDataEmptyBtn) seedDataEmptyBtn.addEventListener('click', seedHandler);
-  if (quickSeedBtn) quickSeedBtn.addEventListener('click', seedHandler);
-
-  if (clearDataBtn) {
-    clearDataBtn.addEventListener('click', async () => {
-      if (confirm('Are you sure you want to clear all hospital & patient data from Firestore?')) {
-        await clearAllHospitals();
-        showToast('All database records cleared.', 'info');
-      }
-    });
-  }
-}
-
-// ================= Form & Validation Handlers =================
-function setupFormListeners() {
-  const form = document.getElementById('hospitalForm');
-  const totalBedsInput = document.getElementById('totalBeds');
-  const occupiedBedsInput = document.getElementById('occupiedBeds');
-  const cancelFormBtn = document.getElementById('cancelFormBtn');
-
-  // Booking Form elements
-  const bookingForm = document.getElementById('bookingForm');
-  const cancelBookingBtn = document.getElementById('cancelBookingBtn');
-
-  const updatePreview = () => {
-    const total = parseInt(totalBedsInput.value, 10) || 0;
-    const occupied = parseInt(occupiedBedsInput.value, 10) || 0;
-    const metrics = calculateBedMetrics(total, occupied);
-
-    const prevAvail = document.getElementById('previewAvailableBeds');
-    const prevPct = document.getElementById('previewPercentage');
-    const prevBadge = document.getElementById('previewStatusBadge');
-
-    if (prevAvail) prevAvail.textContent = metrics.availableBeds;
-    if (prevPct) prevPct.textContent = `${metrics.availabilityPercentage}%`;
-    if (prevBadge) {
-      prevBadge.textContent = metrics.status;
-      prevBadge.className = `badge ${getBadgeClass(metrics.status)}`;
-    }
-  };
-
-  if (totalBedsInput) totalBedsInput.addEventListener('input', updatePreview);
-  if (occupiedBedsInput) occupiedBedsInput.addEventListener('input', updatePreview);
-
-  if (cancelFormBtn) {
-    cancelFormBtn.addEventListener('click', () => {
-      resetForm();
-      switchSection('hospitals');
-    });
-  }
-
-  // Submit Handler for Hospital record
-  if (form) {
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      clearFormErrors();
-
-      const id = document.getElementById('hospitalId').value;
-      const formData = {
-        hospitalName: document.getElementById('hospitalName').value,
-        location: document.getElementById('location').value,
-        department: document.getElementById('department').value,
-        totalBeds: document.getElementById('totalBeds').value,
-        occupiedBeds: document.getElementById('occupiedBeds').value
-      };
-
-      const saveBtn = document.getElementById('saveHospitalBtn');
-      if (saveBtn) saveBtn.disabled = true;
-
-      let result;
-      if (id) {
-        result = await updateHospital(id, formData);
-      } else {
-        result = await addHospital(formData);
-      }
-
-      if (saveBtn) saveBtn.disabled = false;
-
-      if (result.success) {
-        showToast(id ? 'Hospital record updated successfully!' : 'New hospital added successfully!', 'success');
-        resetForm();
-        switchSection('hospitals');
-      } else if (result.errors) {
-        displayFormErrors(result.errors);
-      } else {
-        showToast(result.message || 'Operation failed.', 'error');
-      }
-    });
-  }
-
-  // Cancel booking click
-  if (cancelBookingBtn) {
-    cancelBookingBtn.addEventListener('click', () => {
-      if (bookingForm) bookingForm.reset();
-      switchSection('rooms-beds');
-    });
-  }
-
-  // Submit Handler for Bed Booking form (Redesigned with Confirmation step modal)
-  if (bookingForm) {
-    bookingForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      clearBookingFormErrors();
-
-      const hospId = document.getElementById('bookHospital').value;
-      const hospitalObj = allHospitals.find(h => h.id === hospId);
-
-      const roomBedStr = document.getElementById('bookRoomNumber').value;
-      let roomNumber = '';
-      let bedNumber = '';
-      if (roomBedStr) {
-        const parts = roomBedStr.split('|');
-        roomNumber = parts[0];
-        bedNumber = parts[1];
-      }
-
-      const bookingPayload = {
-        hospitalId: hospId,
-        hospitalName: hospitalObj ? hospitalObj.hospitalName : '',
-        department: document.getElementById('bookDepartment').value,
-        roomType: document.getElementById('bookRoomType').value,
-        roomNumber,
-        bedNumber,
-        patientName: document.getElementById('patientName').value,
-        patientId: document.getElementById('patientId').value,
-        patientAge: document.getElementById('patientAge').value,
-        patientGender: document.getElementById('patientGender').value,
-        patientPhone: document.getElementById('patientPhone').value,
-        patientEmergencyContact: document.getElementById('patientEmergencyContact').value,
-        admissionDate: document.getElementById('admissionDate').value,
-        expectedDischargeDate: document.getElementById('expectedDischargeDate').value
-      };
-
-      // Perform validation check beforehand
-      const tempErrors = {};
-      if (!bookingPayload.patientName) tempErrors.patientName = 'Name is required';
-      if (!bookingPayload.patientId) tempErrors.patientId = 'Patient ID is required';
-      if (!bookingPayload.admissionDate) tempErrors.admissionDate = 'Admission date is required';
-      if (!bookingPayload.expectedDischargeDate) tempErrors.expectedDischargeDate = 'Discharge date is required';
-      if (bookingPayload.expectedDischargeDate && bookingPayload.admissionDate && new Date(bookingPayload.expectedDischargeDate) < new Date(bookingPayload.admissionDate)) {
-        tempErrors.expectedDischargeDate = 'Expected discharge cannot be prior to admission';
-      }
-
-      if (Object.keys(tempErrors).length > 0) {
-        displayBookingFormErrors(tempErrors);
-        return;
-      }
-
-      // Open confirm modal instead of direct booking
-      pendingBookingPayload = bookingPayload;
-      openBookingConfirmModal(bookingPayload);
-    });
-  }
-}
-
-function openBookingConfirmModal(payload) {
-  const modal = document.getElementById('confirmBookingModal');
-  document.getElementById('cbPatientName').textContent = payload.patientName;
-  document.getElementById('cbHospitalName').textContent = payload.hospitalName;
-  document.getElementById('cbBedName').textContent = `Room ${payload.roomNumber} - Bed ${payload.bedNumber}`;
-  
-  const dailyRate = ROOM_TARIFFS[payload.roomType] || 0;
-  const days = Math.max(1, Math.ceil(Math.abs(new Date(payload.expectedDischargeDate) - new Date(payload.admissionDate)) / (1000 * 60 * 60 * 24)));
-  document.getElementById('cbTotalCost').textContent = `₹${(days * dailyRate).toLocaleString()}`;
-
-  if (modal) modal.classList.remove('hidden');
-}
-
-function closeBookingConfirmModal() {
-  const modal = document.getElementById('confirmBookingModal');
-  if (modal) modal.classList.add('hidden');
-  pendingBookingPayload = null;
-}
-
-function populateFormForEdit(record) {
-  document.getElementById('hospitalId').value = record.id;
-  document.getElementById('hospitalName').value = record.hospitalName;
-  document.getElementById('location').value = record.location;
-  document.getElementById('department').value = record.department;
-  document.getElementById('totalBeds').value = record.totalBeds;
-  document.getElementById('occupiedBeds').value = record.occupiedBeds;
-
-  document.getElementById('formTitle').textContent = 'Edit Hospital Facility';
-  document.getElementById('formSubTitle').textContent = `Updating record ID: ${record.id}`;
-  document.getElementById('saveBtnText').textContent = 'Update Hospital Record';
-
-  switchSection('add-hospital');
-
-  const totalBedsInput = document.getElementById('totalBeds');
-  if (totalBedsInput) totalBedsInput.dispatchEvent(new Event('input'));
-}
-
-function resetForm() {
-  document.getElementById('hospitalId').value = '';
-  const form = document.getElementById('hospitalForm');
-  if (form) form.reset();
-
-  document.getElementById('formTitle').textContent = 'Add New Hospital Facility';
-  document.getElementById('formSubTitle').textContent = 'Enter bed capacity and department parameters. Available beds will be calculated automatically.';
-  document.getElementById('saveBtnText').textContent = 'Save Hospital Record';
-
-  clearFormErrors();
-  
-  const totalBedsInput = document.getElementById('totalBeds');
-  if (totalBedsInput) totalBedsInput.dispatchEvent(new Event('input'));
-}
-
-function displayFormErrors(errors) {
-  for (const field in errors) {
-    const inputEl = document.getElementById(field);
-    const errEl = document.getElementById(`err-${field}`);
-    if (inputEl) inputEl.classList.add('is-invalid');
-    if (errEl) errEl.textContent = errors[field];
-  }
-}
-
-function clearFormErrors() {
-  document.querySelectorAll('.form-control, .form-select').forEach(el => el.classList.remove('is-invalid'));
-  document.querySelectorAll('.error-feedback').forEach(el => el.textContent = '');
-}
-
-function displayBookingFormErrors(errors) {
-  for (const field in errors) {
-    const inputEl = document.getElementById(field);
-    const errEl = document.getElementById(`err-${field}`);
-    if (inputEl) inputEl.classList.add('is-invalid');
-    if (errEl) errEl.textContent = errors[field];
-  }
-}
-
-function clearBookingFormErrors() {
-  document.querySelectorAll('#bookingForm .form-control, #bookingForm .form-select').forEach(el => el.classList.remove('is-invalid'));
-  document.querySelectorAll('#bookingForm .error-feedback').forEach(el => el.textContent = '');
-}
-
-// ================= Auth Listener & Modal =================
-function setupAuthListeners() {
-  initAuth((user) => {
-    const role = getCurrentUserRole();
-    renderHospitalsTable();
-    renderRoomsBedsPage();
-    if (role === 'ADMIN' || role === 'STAFF') {
-      renderPatientAdmissionsTable();
-      renderAdminBookingsTable();
-    } else if (role === 'USER') {
-      renderUserHospitalGrid();
-      renderUserAvailableBeds();
-      renderUserMyBookings();
-    }
-  });
-
-  const openLoginBtn = document.getElementById('openLoginBtn');
-  const logoutBtn = document.getElementById('logoutBtn');
-  const authForm = document.getElementById('authForm');
-  const fillDemoBtn = document.getElementById('fillDemoCredentialsBtn');
-
-  if (openLoginBtn) openLoginBtn.addEventListener('click', openAuthModal);
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', async () => {
-      await logoutUser();
-      showToast('Logged out successfully.', 'info');
-      switchSection('landing');
-    });
-  }
-
-  if (fillDemoBtn) {
-    fillDemoBtn.addEventListener('click', () => {
-      document.getElementById('authEmail').value = 'admin@hospital.org';
-      document.getElementById('authPassword').value = 'admin123';
-    });
-  }
-
-  // --- Admin Portal Login Form ---
-  const adminLoginForm = document.getElementById('adminLoginForm');
-  if (adminLoginForm) {
-    adminLoginForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const email = document.getElementById('adminEmail').value.trim();
-      const password = document.getElementById('adminPassword').value;
-      const errAlert = document.getElementById('adminLoginError');
-      const btn = adminLoginForm.querySelector('button[type="submit"]');
-
-      if (errAlert) errAlert.classList.add('hidden');
-      if (btn) btn.disabled = true;
-
-      const res = await loginUser(email, password, 'ADMIN_STAFF');
-      if (btn) btn.disabled = false;
-
-      if (res.success) {
-        showToast(`Welcome back, Admin!`, 'success');
-        switchSection('dashboard');
-      } else {
-        if (errAlert) {
-          errAlert.textContent = res.message || 'Invalid credentials or insufficient privileges.';
-          errAlert.classList.remove('hidden');
-        }
-      }
-    });
-  }
-
-  // --- User/Patient Portal Login Form ---
-  const userLoginForm = document.getElementById('userLoginForm');
-  if (userLoginForm) {
-    userLoginForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const email = document.getElementById('userLoginEmail').value.trim();
-      const password = document.getElementById('userLoginPassword').value;
-      const errAlert = document.getElementById('userLoginError');
-      const btn = userLoginForm.querySelector('button[type="submit"]');
-
-      if (errAlert) errAlert.classList.add('hidden');
-      if (btn) btn.disabled = true;
-
-      const res = await loginUser(email, password, 'USER');
-      if (btn) btn.disabled = false;
-
-      if (res.success) {
-        showToast(`Welcome to PulseBed Patient Portal!`, 'success');
-        switchSection('user-dashboard');
-      } else {
-        if (errAlert) {
-          errAlert.textContent = res.message || 'Invalid credentials.';
-          errAlert.classList.remove('hidden');
-        }
-      }
-    });
-  }
-
-  // Demo fill for patient portal
-  const fillPatientDemoBtn = document.getElementById('fillPatientDemoBtn');
-  if (fillPatientDemoBtn) {
-    fillPatientDemoBtn.addEventListener('click', () => {
-      const emailEl = document.getElementById('userLoginEmail');
-      const pwdEl = document.getElementById('userLoginPassword');
-      if (emailEl) emailEl.value = 'patient@example.com';
-      if (pwdEl) pwdEl.value = 'patient123';
-    });
-  }
-  // Demo fill for admin portal
-  const fillAdminDemoBtn = document.getElementById('fillAdminDemoBtn');
-  if (fillAdminDemoBtn) {
-    fillAdminDemoBtn.addEventListener('click', () => {
-      const emailEl = document.getElementById('adminEmail');
-      const pwdEl = document.getElementById('adminPassword');
-      if (emailEl) emailEl.value = 'admin@hospital.org';
-      if (pwdEl) pwdEl.value = 'admin123';
-    });
-  }
-
-  // --- Registration Form ---
-  const registerForm = document.getElementById('registerForm');
-  if (registerForm) {
-    registerForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const name = document.getElementById('regName').value.trim();
-      const email = document.getElementById('regEmail').value.trim();
-      const phone = document.getElementById('regPhone').value.trim();
-      const password = document.getElementById('regPassword').value;
-      const confirmPassword = document.getElementById('regConfirmPassword').value;
-      const errAlert = document.getElementById('registerError');
-      const btn = registerForm.querySelector('button[type="submit"]');
-
-      if (errAlert) errAlert.classList.add('hidden');
-
-      if (!name || !email || !phone || !password) {
-        if (errAlert) { errAlert.textContent = 'All fields are required.'; errAlert.classList.remove('hidden'); }
-        return;
-      }
-      if (password !== confirmPassword) {
-        if (errAlert) { errAlert.textContent = 'Passwords do not match.'; errAlert.classList.remove('hidden'); }
-        return;
-      }
-      if (password.length < 6) {
-        if (errAlert) { errAlert.textContent = 'Password must be at least 6 characters.'; errAlert.classList.remove('hidden'); }
-        return;
-      }
-
-      if (btn) btn.disabled = true;
-      const res = await registerUser(name, email, phone, password);
-      if (btn) btn.disabled = false;
-
-      if (res.success) {
-        showToast('Account created! Welcome to PulseBed.', 'success');
-        switchSection('user-dashboard');
-      } else {
-        if (errAlert) {
-          errAlert.textContent = res.message || 'Registration failed. Please try again.';
-          errAlert.classList.remove('hidden');
-        }
-      }
-    });
-  }
-
-  // --- Landing card navigation ---
-  document.getElementById('goToAdminLoginBtn')?.addEventListener('click', () => switchSection('admin-login'));
-  document.getElementById('goToUserLoginBtn')?.addEventListener('click', () => switchSection('user-login'));
-  document.getElementById('goToRegisterFromUser')?.addEventListener('click', () => switchSection('register'));
-  document.getElementById('goToUserLoginFromRegister')?.addEventListener('click', () => switchSection('user-login'));
-  document.getElementById('goToAdminFromLanding')?.addEventListener('click', () => switchSection('admin-login'));
-  document.getElementById('backToLandingFromAdmin')?.addEventListener('click', () => switchSection('landing'));
-  document.getElementById('backToLandingFromUser')?.addEventListener('click', () => switchSection('landing'));
-  document.getElementById('backToLandingFromRegister')?.addEventListener('click', () => switchSection('landing'));
-  
-  document.getElementById('landingConfigLink')?.addEventListener('click', (e) => {
-    e.preventDefault();
-    switchSection('about');
-  });
-}
-
-function openAuthModal() {
-  const modal = document.getElementById('authModal');
-  if (modal) modal.classList.remove('hidden');
-}
-
-function closeAuthModal() {
-  const modal = document.getElementById('authModal');
-  if (modal) modal.classList.add('hidden');
-}
-
-// ================= Remember Me Setup =================
-function setupRememberMe() {
-  const rememberedEmail = localStorage.getItem('remembered_admin_email');
-  if (rememberedEmail) {
-    const emailField = document.getElementById('authEmail');
-    const rememberCheckbox = document.getElementById('rememberMe');
-    if (emailField) emailField.value = rememberedEmail;
-    if (rememberCheckbox) rememberCheckbox.checked = true;
-  }
-}
-
-// ================= Modals Handling =================
-function setupModals() {
-  document.getElementById('closeAuthModalBtn')?.addEventListener('click', closeAuthModal);
-
-  // Delete Modal
-  const deleteModal = document.getElementById('deleteModal');
-  document.getElementById('closeDeleteModalBtn')?.addEventListener('click', closeDeleteModal);
-  document.getElementById('cancelDeleteBtn')?.addEventListener('click', closeDeleteModal);
-
-  document.getElementById('confirmDeleteBtn')?.addEventListener('click', async () => {
-    if (pendingDeleteId) {
-      await deleteHospital(pendingDeleteId);
-      showToast('Hospital record deleted successfully.', 'success');
-      closeDeleteModal();
-    }
-  });
-
-  // Config Modal is now inline in section-about
-
-  document.getElementById('configForm')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const apiKey = document.getElementById('cfgApiKey').value.trim();
-    const projectId = document.getElementById('cfgProjectId').value.trim();
-    const authDomain = document.getElementById('cfgAuthDomain').value.trim();
-
-    if (apiKey && projectId) {
-      saveStoredFirebaseConfig({ apiKey, projectId, authDomain });
-      showToast('Firebase Config saved! Reloading application...', 'success');
-      setTimeout(() => window.location.reload(), 1000);
-    } else {
-      showToast('Please enter both API Key and Project ID.', 'error');
-    }
-  });
-
-  // Booking Confirmation Modal
-  document.getElementById('closeConfirmBookingModalBtn')?.addEventListener('click', closeBookingConfirmModal);
-  document.getElementById('finalBookingCancelBtn')?.addEventListener('click', closeBookingConfirmModal);
-  
-  document.getElementById('finalBookingConfirmBtn')?.addEventListener('click', async () => {
-    if (pendingBookingPayload) {
-      const bookBtn = document.getElementById('bookSubmitBtn');
-      if (bookBtn) bookBtn.disabled = true;
-
-      const res = await addPatientBooking(pendingBookingPayload);
-      if (bookBtn) bookBtn.disabled = false;
-
-      if (res.success) {
-        showToast(`Patient Bed Admission Booked successfully!`, 'success');
-        document.getElementById('bookingForm').reset();
-        closeBookingConfirmModal();
-        switchSection('patient-admissions');
-      } else {
-        showToast(res.message || 'Booking operation failed.', 'error');
-        closeBookingConfirmModal();
-      }
-    }
-  });
-
-  setupStepBedsModal();
-  setupDischargeModalListeners();
-}
-
-function openDeleteModal(id, name) {
-  pendingDeleteId = id;
-  const nameEl = document.getElementById('deleteHospitalName');
-  if (nameEl) nameEl.textContent = name;
-  const modal = document.getElementById('deleteModal');
-  if (modal) modal.classList.remove('hidden');
-}
-
-// Eye toggler on Password inputs (Admin Login)
-const toggleAdminPasswordBtn = document.getElementById('toggleAdminPasswordBtn');
-if (toggleAdminPasswordBtn) {
-  toggleAdminPasswordBtn.addEventListener('click', () => {
-    const pwdInput = document.getElementById('adminPassword');
-    const eyeOpen = document.getElementById('eyeOpenIconAdmin');
-    const eyeClosed = document.getElementById('eyeClosedIconAdmin');
-    if (pwdInput && pwdInput.type === 'password') {
-      pwdInput.type = 'text';
-      eyeOpen?.classList.add('hidden');
-      eyeClosed?.classList.remove('hidden');
-    } else if (pwdInput) {
-      pwdInput.type = 'password';
-      eyeOpen?.classList.remove('hidden');
-      eyeClosed?.classList.add('hidden');
-    }
-  });
-}
-
-// Eye toggler on Password inputs (User Login)
-const toggleUserPasswordBtn = document.getElementById('toggleUserPasswordBtn');
-if (toggleUserPasswordBtn) {
-  toggleUserPasswordBtn.addEventListener('click', () => {
-    const pwdInput = document.getElementById('userLoginPassword');
-    const eyeOpen = document.getElementById('eyeOpenIconUser');
-    const eyeClosed = document.getElementById('eyeClosedIconUser');
-    if (pwdInput && pwdInput.type === 'password') {
-      pwdInput.type = 'text';
-      eyeOpen?.classList.add('hidden');
-      eyeClosed?.classList.remove('hidden');
-    } else if (pwdInput) {
-      pwdInput.type = 'password';
-      eyeOpen?.classList.remove('hidden');
-      eyeClosed?.classList.add('hidden');
-    }
-  });
-}
-
-function closeDeleteModal() {
-  pendingDeleteId = null;
-  const modal = document.getElementById('deleteModal');
-  if (modal) modal.classList.add('hidden');
-}
-
-function setupStepBedsModal() {
-  const modal = document.getElementById('stepBedsModal');
-  const closeBtn = document.getElementById('closeStepBedsModalBtn');
-  const cancelBtn = document.getElementById('cancelStepBedsBtn');
-  const minusBtn = document.getElementById('stepMinusBtn');
-  const plusBtn = document.getElementById('stepPlusBtn');
-  const inputVal = document.getElementById('stepOccupiedVal');
-  const saveBtn = document.getElementById('saveStepBedsBtn');
-
-  const updateStepCalc = () => {
-    const occ = Math.min(currentStepTotal, Math.max(0, parseInt(inputVal.value, 10) || 0));
-    inputVal.value = occ;
-    currentStepOccupied = occ;
-    const avail = Math.max(0, currentStepTotal - currentStepOccupied);
-    document.getElementById('stepCalculatedAvailable').textContent = avail;
-  };
-
-  if (minusBtn) {
-    minusBtn.addEventListener('click', () => {
-      inputVal.value = Math.max(0, (parseInt(inputVal.value, 10) || 0) - 1);
-      updateStepCalc();
-    });
-  }
-
-  if (plusBtn) {
-    plusBtn.addEventListener('click', () => {
-      inputVal.value = Math.min(currentStepTotal, (parseInt(inputVal.value, 10) || 0) + 1);
-      updateStepCalc();
-    });
-  }
-
-  if (inputVal) inputVal.addEventListener('input', updateStepCalc);
-
-  if (closeBtn) closeBtn.addEventListener('click', () => modal.classList.add('hidden'));
-  if (cancelBtn) cancelBtn.addEventListener('click', () => modal.classList.add('hidden'));
-
-  if (saveBtn) {
-    saveBtn.addEventListener('click', async () => {
-      if (pendingStepId) {
-        await updateOccupiedBedsOnly(pendingStepId, currentStepTotal, currentStepOccupied);
-        showToast('Occupied beds count updated!', 'success');
-        modal.classList.add('hidden');
-      }
-    });
-  }
-}
-
-function openStepBedsModal(id, name, total, occupied) {
-  pendingStepId = id;
-  currentStepTotal = total;
-  currentStepOccupied = occupied;
-
-  document.getElementById('stepHospitalName').textContent = name;
-  document.getElementById('stepTotalBeds').textContent = total;
-  const inputVal = document.getElementById('stepOccupiedVal');
-  if (inputVal) inputVal.value = occupied;
-
-  document.getElementById('stepCalculatedAvailable').textContent = Math.max(0, total - occupied);
-
-  const modal = document.getElementById('stepBedsModal');
-  if (modal) modal.classList.remove('hidden');
-}
-
-// ================= Discharge Modal & billing =================
-function setupDischargeModalListeners() {
-  const modal = document.getElementById('dischargeModal');
-  const closeBtn = document.getElementById('closeDischargeModalBtn');
-  const cancelBtn = document.getElementById('cancelDischargeBtn');
-  const confirmBtn = document.getElementById('confirmDischargeBtn');
-  const actDischargeDateInput = document.getElementById('actualDischargeDate');
-
-  const recalculateDischargeCost = () => {
-    if (!pendingDischargeBooking) return;
-    const disStr = actDischargeDateInput.value;
-    const adm = new Date(pendingDischargeBooking.admissionDate);
-    const rate = pendingDischargeBooking.costPerDay || 1500;
-    
-    document.getElementById('dischargeCostPerDay').textContent = `₹${rate.toLocaleString()}`;
-
-    if (disStr) {
-      const dis = new Date(disStr);
-      if (dis >= adm) {
-        const diffTime = Math.abs(dis - adm);
-        const diffDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-        const finalBill = diffDays * rate;
-
-        document.getElementById('dischargeDays').textContent = `${diffDays} Day${diffDays > 1 ? 's' : ''}`;
-        document.getElementById('dischargeFinalTotal').textContent = `₹${finalBill.toLocaleString()}`;
-        document.getElementById('err-actualDischargeDate').textContent = '';
-        return;
-      }
-    }
-    document.getElementById('dischargeDays').textContent = `0 Days`;
-    document.getElementById('dischargeFinalTotal').textContent = `₹0`;
-  };
-
-  if (actDischargeDateInput) {
-    actDischargeDateInput.addEventListener('change', recalculateDischargeCost);
-  }
-
-  if (closeBtn) closeBtn.addEventListener('click', closeDischargeModal);
-  if (cancelBtn) cancelBtn.addEventListener('click', closeDischargeModal);
-
-  if (confirmBtn) {
-    confirmBtn.addEventListener('click', async () => {
-      const dateVal = actDischargeDateInput.value;
-      if (!dateVal) {
-        document.getElementById('err-actualDischargeDate').textContent = 'Please select actual discharge date.';
-        return;
-      }
-
-      confirmBtn.disabled = true;
-      const res = await dischargePatient(pendingDischargeBooking.id, dateVal);
-      confirmBtn.disabled = false;
-
-      if (res.success) {
-        showToast('Patient discharged successfully!', 'success');
-        closeDischargeModal();
-        closePatientDetailsDrawer();
-      } else if (res.errors) {
-        document.getElementById('err-actualDischargeDate').textContent = res.errors.actualDischargeDate || 'Invalid discharge date.';
-      } else {
-        showToast(res.message || 'Discharge process failed.', 'error');
-      }
-    });
-  }
-}
-
-function openDischargeModal(booking) {
-  pendingDischargeBooking = booking;
-
-  document.getElementById('dischargePatientName').value = booking.patientName;
-  document.getElementById('dischargeAdmissionDate').value = booking.admissionDate;
-  
-  const todayStr = new Date().toISOString().split('T')[0];
-  const actDischargeDateInput = document.getElementById('actualDischargeDate');
-  if (actDischargeDateInput) {
-    actDischargeDateInput.value = todayStr;
-    actDischargeDateInput.min = booking.admissionDate;
-  }
-
-  const modal = document.getElementById('dischargeModal');
-  if (modal) modal.classList.remove('hidden');
-
-  if (actDischargeDateInput) {
-    actDischargeDateInput.dispatchEvent(new Event('change'));
-  }
-}
-
-function closeDischargeModal() {
-  pendingDischargeBooking = null;
-  const modal = document.getElementById('dischargeModal');
-  if (modal) modal.classList.add('hidden');
-}
-
-// ================= Collapsible Sidebar Navigation =================
-function setupCollapsibleSidebar() {
-  const collapseBtn = document.getElementById('collapseSidebarBtn');
-  const sidebar = document.getElementById('sidebar');
-  
-  if (collapseBtn && sidebar) {
-    collapseBtn.addEventListener('click', () => {
-      sidebar.classList.toggle('collapsed');
-    });
-  }
-}
-
-// ================= Mobile Sidebar Drawer =================
-function setupMobileDrawer() {
-  const mobileMenuBtn = document.getElementById('mobileMenuBtn');
-  const sidebar = document.getElementById('sidebar');
-  const overlay = document.getElementById('sidebarOverlay');
-
-  if (mobileMenuBtn) {
-    mobileMenuBtn.addEventListener('click', () => {
-      if (sidebar) sidebar.classList.add('open');
-      if (overlay) overlay.classList.add('active');
-    });
-  }
-
-  if (overlay) {
-    overlay.addEventListener('click', closeMobileSidebar);
-  }
-}
-
-function closeMobileSidebar() {
-  const sidebar = document.getElementById('sidebar');
-  const overlay = document.getElementById('sidebarOverlay');
-  if (sidebar) sidebar.classList.remove('open');
-  if (overlay) overlay.classList.remove('active');
-}
-
-// ================= Header Current Date & Notifications Dropdown =================
-function setupHeaderInteractions() {
-  // Populate currentDate (legacy hidden element)
-  const dateEl = document.getElementById('currentDate');
-  if (dateEl) {
-    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-    dateEl.textContent = new Date().toLocaleDateString('en-US', options);
-  }
-
-  // Update Live Clock Ticking
-  const clockTimeEl = document.getElementById('headerClockTime');
-  const clockDateEl = document.getElementById('headerClockDate');
-
-  function updateHeaderClock() {
-    const now = new Date();
-    if (clockTimeEl) {
-      clockTimeEl.textContent = now.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: true
-      });
-    }
-    if (clockDateEl) {
-      const dayName = now.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
-      const day = now.getDate();
-      const month = now.toLocaleDateString('en-US', { month: 'long' }).toUpperCase();
-      const year = now.getFullYear();
-      clockDateEl.textContent = `${dayName}, ${day} ${month} ${year}`;
-    }
-  }
-
-  if (clockTimeEl || clockDateEl) {
-    updateHeaderClock();
-    setInterval(updateHeaderClock, 1000);
-  }
-
-  // Bell Dropdown Toggle
-  const bellBtn = document.getElementById('notificationBtn');
-  const dropdown = document.getElementById('notificationDropdown');
-
-  if (bellBtn && dropdown) {
-    bellBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      dropdown.classList.toggle('active');
-    });
-
-    document.addEventListener('click', (e) => {
-      if (!dropdown.contains(e.target) && e.target !== bellBtn) {
-        dropdown.classList.remove('active');
-      }
-    });
-  }
-}
-
-// Initialize notification alerts
-function processNewNotifications(bookings) {
-  if (bookings.length === 0) return;
-  
-  // Clean logs and populate with realistic SaaS items
-  const recentBookings = [...bookings].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
-  
-  notificationLogs = recentBookings.map(b => {
-    if (b.bookingStatus === 'Discharged') {
-      return {
-        message: `Patient ${escapeHtml(b.patientName)} (ID: ${escapeHtml(b.patientId)}) discharged.`,
-        time: formatRelativeTime(b.updatedAt || b.createdAt)
-      };
-    }
-    return {
-      message: `Bed ${escapeHtml(b.bedNumber)} allocated for ${escapeHtml(b.patientName)}.`,
-      time: formatRelativeTime(b.createdAt)
-    };
-  });
-}
-
-function updateNotificationFeed() {
-  const listEl = document.getElementById('notificationList');
-  const countEl = document.getElementById('notificationCount');
-
-  if (!listEl) return;
-
-  if (notificationLogs.length === 0) {
-    listEl.innerHTML = `<div class="p-3 text-center text-muted text-xs">No recent capacity warnings or bookings.</div>`;
-    if (countEl) countEl.textContent = '0 Alerts';
-    return;
-  }
-
-  if (countEl) countEl.textContent = `${notificationLogs.length} Alerts`;
-
-  listEl.innerHTML = notificationLogs.map(n => `
-    <div class="notification-item">
-      <span>${n.message}</span>
-      <span class="notification-time">${n.time}</span>
-    </div>
-  `).join('');
-}
-
-// ================= Patient admissions Details Slide-out Drawer =================
-function setupPatientDetailsDrawer() {
-  const backdrop = document.getElementById('drawerBackdrop');
-  const closeBtn = document.getElementById('closeDrawerBtn');
-  const printBtn = document.getElementById('printSummaryBtn');
-  const dischargeBtn = document.getElementById('drawerDischargeBtn');
-
-  if (backdrop) backdrop.addEventListener('click', closePatientDetailsDrawer);
-  if (closeBtn) closeBtn.addEventListener('click', closePatientDetailsDrawer);
-
-  if (printBtn) {
-    printBtn.addEventListener('click', () => {
-      if (selectedBookingForDetail) {
-        window.print();
-      }
-    });
-  }
-
-  if (dischargeBtn) {
-    dischargeBtn.addEventListener('click', () => {
-      if (selectedBookingForDetail) {
-        openDischargeModal(selectedBookingForDetail);
-      }
-    });
-  }
-}
-
-function openPatientDetailsDrawer(booking) {
-  selectedBookingForDetail = booking;
-
-  // Toggle drawer visibility classes
-  const drawer = document.getElementById('patientDetailsDrawer');
-  const backdrop = document.getElementById('drawerBackdrop');
-  
-  if (drawer) drawer.classList.add('active');
-  if (backdrop) backdrop.classList.add('active');
-
-  // Fill in profile details
-  document.getElementById('dtPatientName').textContent = booking.patientName;
-  document.getElementById('dtPatientId').textContent = booking.patientId;
-  document.getElementById('dtPatientAgeGender').textContent = `${booking.age} yrs / ${booking.gender}`;
-  document.getElementById('dtPatientPhone').textContent = booking.phone || '-';
-  document.getElementById('dtEmergencyContact').textContent = booking.emergencyContact || '-';
-
-  // Fill in Allocation info
-  document.getElementById('dtHospitalName').textContent = booking.hospitalName;
-  document.getElementById('dtDepartment').textContent = booking.department;
-  document.getElementById('dtRoomType').textContent = booking.roomType;
-  document.getElementById('dtRoomBed').textContent = `Room ${booking.roomNumber} - Bed ${booking.bedNumber}`;
-
-  // Timeline
-  document.getElementById('dtAdmissionDate').textContent = booking.admissionDate;
-  document.getElementById('dtExpectedDischarge').textContent = booking.bookingStatus === 'Admitted' 
-    ? `${booking.expectedDischargeDate} (Expected)` 
-    : `${booking.actualDischargeDate} (Actual)`;
-
-  const statusBadge = document.getElementById('dtStatusBadge');
-  if (statusBadge) {
-    statusBadge.textContent = booking.bookingStatus;
-    statusBadge.className = `badge ${booking.bookingStatus === 'Admitted' ? 'badge-available' : 'badge-subtle'}`;
-  }
-
-  // Costings
-  document.getElementById('dtCostPerDay').textContent = `₹${booking.costPerDay.toLocaleString()}`;
-  document.getElementById('dtDuration').textContent = `${booking.numberOfDays} Day${booking.numberOfDays > 1 ? 's' : ''}`;
-  document.getElementById('dtEstCost').textContent = `₹${booking.estimatedCost.toLocaleString()}`;
-  document.getElementById('dtTotalBill').textContent = `₹${booking.estimatedCost.toLocaleString()}`;
-
-  // Hide discharge button in drawer if already discharged
-  const dischargeBtn = document.getElementById('drawerDischargeBtn');
-  if (dischargeBtn) {
-    if (booking.bookingStatus === 'Discharged') {
-      dischargeBtn.classList.add('hidden');
-    } else {
-      dischargeBtn.classList.remove('hidden');
-    }
-  }
-}
-
-function closePatientDetailsDrawer() {
-  const drawer = document.getElementById('patientDetailsDrawer');
-  const backdrop = document.getElementById('drawerBackdrop');
-  
-  if (drawer) drawer.classList.remove('active');
-  if (backdrop) backdrop.classList.remove('active');
-  selectedBookingForDetail = null;
-}
-
-// ================= User Portal Render Functions =================
-
-function renderUserHospitalGrid() {
-  const container = document.getElementById('userHospitalGrid');
-  if (!container) return;
-
-  const searchVal = (document.getElementById('userSearchInput')?.value || '').toLowerCase().trim();
-  const filterLoc = document.getElementById('userLocationFilter')?.value || 'All';
-  const filterDept = document.getElementById('userDepartmentFilter')?.value || 'All';
-
-  const filtered = allHospitals.filter(h => {
-    const matchesSearch = !searchVal || 
-      (h.hospitalName && h.hospitalName.toLowerCase().includes(searchVal)) ||
-      (h.location && h.location.toLowerCase().includes(searchVal));
-    const matchesLoc = filterLoc === 'All' || h.location === filterLoc;
-    const matchesDept = filterDept === 'All' || h.department === filterDept;
-    return matchesSearch && matchesLoc && matchesDept;
-  });
-
-  if (filtered.length === 0) {
-    container.innerHTML = `<div class="user-empty-state"><span class="user-empty-icon">🏥</span><h3>No Hospitals Found</h3><p>No hospital matches the filter criteria.</p></div>`;
-    return;
-  }
-
-  container.innerHTML = filtered.map(h => {
-    const pct = h.availabilityPercentage || 0;
-    const statusColor = pct > 40 ? 'var(--accent-emerald)' : pct > 15 ? 'var(--accent-amber)' : 'var(--accent-red)';
+  renderNavbar() {
     return `
-      <div class="user-hospital-card" data-hospid="${h.id}">
-        <div class="user-hosp-header">
-          <div class="user-hosp-icon">🏥</div>
-          <div>
-            <div class="user-hosp-name">${escapeHtml(h.hospitalName)}</div>
-            <div class="user-hosp-location">📍 ${escapeHtml(h.location)}</div>
+      <header class="navbar">
+        <div class="brand-group">
+          <div class="brand-logo">
+            <svg viewBox="0 0 24 24"><path d="M3 13h4l3-8 4 16 3-8h4"/></svg>
+          </div>
+          <div class="brand-text">
+            <span class="brand-title">PulseWatch</span>
+            <span class="brand-badge">⚡ 500ms Live Telemetry</span>
           </div>
         </div>
-        <div class="user-hosp-dept">${escapeHtml(h.department)}</div>
-        <div class="user-hosp-stats">
-          <div class="user-stat">
-            <div class="user-stat-val">${h.totalBeds}</div>
-            <div class="user-stat-lbl">Total Beds</div>
+
+        <div class="nav-actions" style="display: flex; align-items: center; gap: 1rem;">
+          <div class="search-input-wrapper" style="position: relative; width: 350px;">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); width: 1.25rem; height: 1.25rem; color: var(--text-muted);">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input 
+              type="text" 
+              id="stock-search-input" 
+              class="search-input" 
+              placeholder="Search & add stocks (e.g. INFY, RELIANCE)..." 
+              value="${this.searchQuery}"
+              autocomplete="off"
+            />
+            <div id="search-dropdown" class="search-dropdown" style="display: ${this.searchResults.length > 0 ? 'block' : 'none'}; top: calc(100% + 0.5rem); left: 0; right: 0;">
+              ${this.searchResults.map(stock => `
+                <div class="search-result-item" data-symbol="${stock.symbol}">
+                  <div>
+                    <strong>${stock.symbol}</strong>
+                    <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.5rem;">${stock.company_name}</span>
+                  </div>
+                  <div>
+                    <span style="font-family: var(--font-mono); font-size: 0.85rem;">₹${this.formatINR(stock.last_price)}</span>
+                    <button class="btn-primary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; margin-left: 0.75rem;">+ Add</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
           </div>
-          <div class="user-stat">
-            <div class="user-stat-val" style="color:${statusColor}">${h.availableBeds}</div>
-            <div class="user-stat-lbl">Available</div>
+
+          <div id="telemetry-pill" class="telemetry-pill ${this.isDelayedFeed ? 'delayed' : (this.connectionStatus === 'OFFLINE' ? 'stale' : '')}">
+            <span class="telemetry-dot"></span>
+            <span id="telemetry-text">
+              ${this.isDelayedFeed ? '🟡 Delayed Feed (Simulated)' : (this.connectionStatus === 'LIVE' ? `Live 500ms • ${this.lastLatency}ms` : this.connectionStatus)}
+            </span>
           </div>
-          <div class="user-stat">
-            <div class="user-stat-val">${h.occupiedBeds}</div>
-            <div class="user-stat-lbl">Occupied</div>
+
+          <button id="theme-toggle-btn" class="drawer-close-btn" title="Toggle Theme">
+            ${this.theme === 'dark' ? '☀️' : '🌙'}
+          </button>
+
+          <div class="user-profile-badge" id="user-menu-btn" title="Click to log out">
+            <div class="user-avatar">${this.user?.avatar_initials || 'PS'}</div>
+            <span class="user-name-text">${this.user?.name || 'Judge Demo'}</span>
+            <span style="font-size: 0.7rem; color: var(--text-muted);">▼</span>
           </div>
         </div>
-        <div class="user-hosp-bar-wrap">
-          <div class="user-hosp-bar" style="width:${pct}%; background:${statusColor};"></div>
+      </header>
+    `;
+  }
+
+  // --- Market Indices Bar ---
+
+  renderIndicesBar() {
+    const list = Object.values(this.indices);
+    if (list.length === 0) return `<div class="indices-bar" id="indices-bar">Streaming benchmarks...</div>`;
+
+    return `
+      <div class="indices-bar" id="indices-bar">
+        ${list.map(idx => {
+          const isPos = idx.change_pct >= 0;
+          return `
+            <div class="index-chip">
+              <span class="index-chip-name">${idx.name}</span>
+              <span class="index-chip-price">${this.formatINR(idx.price)}</span>
+              <span class="index-chip-delta ${isPos ? 'delta-positive' : 'delta-negative'}">
+                ${isPos ? '▲ +' : '▼ '}${idx.change_pct}%
+              </span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  // --- Watchlist Controls & Search ---
+
+  renderWatchlistControls() {
+    const activeWl = this.getActiveWatchlist();
+    const count = activeWl?.items?.length || 0;
+
+    return `
+      <div class="watchlist-nav-bar">
+        <div class="watchlist-tabs">
+          ${this.watchlists.map(wl => `
+            <button class="wl-tab ${wl.id === this.activeWatchlistId ? 'active' : ''}" data-wl-id="${wl.id}">
+              ${wl.name}
+              <span class="wl-tab-badge">${wl.items?.length || 0}</span>
+            </button>
+          `).join('')}
+          <button class="btn-new-wl" id="btn-open-create-wl">+ New List</button>
         </div>
-        <div class="user-hosp-footer">
-          <span class="badge ${getBadgeClass(h.status)}">${h.status}</span>
-          <button class="btn btn-primary btn-xs user-book-bed-btn" data-hospid="${h.id}" ${h.availableBeds === 0 ? 'disabled' : ''}>
-            ${h.availableBeds === 0 ? 'Fully Occupied' : 'Request Bed'}
+      </div>
+
+      <div class="filter-search-row">
+
+        <div class="chip-filters">
+          <button class="filter-chip ${this.activeFilter === 'ALL' ? 'active' : ''}" data-filter="ALL">All (${count})</button>
+          <button class="filter-chip ${this.activeFilter === 'ANOMALIES' ? 'active' : ''}" data-filter="ANOMALIES">⚡ Anomalies Only</button>
+          <button class="filter-chip ${this.activeFilter === 'VOLUME' ? 'active' : ''}" data-filter="VOLUME">📊 Volume Surges</button>
+          <button class="filter-chip ${this.activeFilter === 'EARNINGS' ? 'active' : ''}" data-filter="EARNINGS">📅 Earnings Near</button>
+          <button class="filter-chip ${this.activeFilter === 'GAINERS' ? 'active' : ''}" data-filter="GAINERS">📈 Top Gainers</button>
+          <button class="filter-chip ${this.activeFilter === 'LOSERS' ? 'active' : ''}" data-filter="LOSERS">📉 Losers</button>
+        </div>
+      </div>
+    `;
+  }
+
+  // --- Watchlist Table (Enriched with VWAP & 500ms Ticks) ---
+
+  renderWatchlistTable() {
+    const items = this.getFilteredItems();
+
+    if (items.length === 0) {
+      return `
+        <div class="watchlist-container">
+          <div style="padding: 3rem; text-align: center; color: var(--text-muted);">
+            <div style="font-size: 2.2rem; margin-bottom: 0.5rem;">🔍</div>
+            <p style="font-weight: 600;">No stocks match the selected filter.</p>
+            <p style="font-size: 0.8rem; margin-top: 0.25rem;">Select "All" or add tickers using the search bar above.</p>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="watchlist-container">
+        <div class="watchlist-header">
+          <div>Company / Symbol</div>
+          <div>Last Price & VWAP</div>
+          <div>Day Change</div>
+          <div>Volume / Z-Score</div>
+          <div>Meaningful Change Badges</div>
+          <div style="text-align: right;">Chart / Action</div>
+        </div>
+        <div class="watchlist-body" id="watchlist-table-body">
+          ${items.map(item => this.renderTickerRow(item.live, item)).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  renderTickerRow(stock, item) {
+    const isPos = stock.change_pct >= 0;
+    const isSurge = stock.volume_z_score >= 2.0;
+
+    return `
+      <div class="ticker-row" id="ticker-row-${stock.symbol}" data-symbol="${stock.symbol}">
+        <div class="ticker-col-meta">
+          <div class="ticker-symbol-group">
+            <span class="ticker-symbol">${stock.symbol}</span>
+            <span class="ticker-sector-pill">${stock.sector.split(' ')[0]}</span>
+          </div>
+          <span class="ticker-company-name">${stock.company_name}</span>
+        </div>
+
+        <div class="ticker-col-price">
+          <div>₹<span class="price-text">${this.formatINR(stock.last_price)}</span></div>
+          <div class="vwap-pill">VWAP: ₹<span class="vwap-text">${this.formatINR(stock.vwap)}</span></div>
+        </div>
+
+        <div class="ticker-col-delta">
+          <span class="ticker-delta-pill ${isPos ? 'delta-positive' : 'delta-negative'}">
+            ${isPos ? '▲ +' : '▼ '}${stock.change_pct}%
+          </span>
+          <span class="ticker-delta-amt">${isPos ? '+' : ''}₹${this.formatINR(stock.change)}</span>
+        </div>
+
+        <div class="ticker-col-vol">
+          <span class="vol-val">${(stock.current_volume / 100000).toFixed(2)}L</span>
+          <span class="z-score-badge ${isSurge ? 'z-score-surge' : ''}">
+            ${isSurge ? '⚡ ' : ''}${stock.volume_z_score.toFixed(1)}σ
+          </span>
+        </div>
+
+        <div class="ticker-col-signals">
+          ${this.renderSignalBadges(stock.active_signals)}
+        </div>
+
+        <div class="ticker-col-actions">
+          ${this.renderSparklineSVG(stock.sparkline, isPos)}
+          <button class="btn-remove-stock" data-remove-symbol="${stock.symbol}" title="Remove from list">
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
           </button>
         </div>
       </div>
     `;
-  }).join('');
-
-  container.querySelectorAll('.user-book-bed-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const hospId = btn.getAttribute('data-hospid');
-      // Pre-select hospital in available beds section
-      const userHospSelect = document.getElementById('userHospSelect');
-      if (userHospSelect) userHospSelect.value = hospId;
-      switchSection('user-available-beds');
-      renderUserAvailableBeds();
-    });
-  });
-}
-
-function renderUserAvailableBeds() {
-  const container = document.getElementById('userBedsContainer');
-  const userHospSelect = document.getElementById('userHospSelect');
-  const userBedRoomTypeFilter = document.getElementById('userBedRoomTypeFilter');
-  if (!container) return;
-
-  const selectedHospId = userHospSelect ? userHospSelect.value : '';
-  if (!selectedHospId) {
-    container.innerHTML = `<div class="user-empty-state"><span class="user-empty-icon">🔍</span><h3>Select a Hospital</h3><p>Choose a hospital above to browse available beds.</p></div>`;
-    return;
   }
 
-  const hospital = allHospitals.find(h => h.id === selectedHospId);
-  if (!hospital) {
-    container.innerHTML = `<div class="user-empty-state"><span class="user-empty-icon">⚠️</span><h3>Hospital Not Found</h3></div>`;
-    return;
+  renderSignalBadges(signals) {
+    if (!signals || signals.length === 0) {
+      return `<span style="font-size: 0.75rem; color: var(--text-muted); font-style: italic;">Normal market drift</span>`;
+    }
+
+    return signals.map(s => {
+      let badgeClass = 'badge-volume';
+      let icon = '⚡';
+      if (s.type === 'SECTOR_DECOUPLING') {
+        badgeClass = s.severity === 'positive' ? 'badge-decoupling-pos' : 'badge-decoupling-neg';
+        icon = '🧭';
+      } else if (s.type === '52W_HIGH_TEST') {
+        badgeClass = 'badge-high';
+        icon = '🎯';
+      } else if (s.type === 'EARNINGS_PROXIMITY') {
+        badgeClass = 'badge-earnings';
+        icon = '📅';
+      }
+
+      return `
+        <span class="smart-badge ${badgeClass}" title="${s.label}">
+          <span>${icon}</span>
+          <span>${s.label}</span>
+        </span>
+      `;
+    }).join('');
   }
 
-  const selectedRoomType = userBedRoomTypeFilter ? userBedRoomTypeFilter.value : 'All';
+  // --- Context Drawer (Deep Stock Statistics & Order Book) ---
 
-  const rooms = getRoomsAndBedsForHospital(hospital, allBookings);
-  const filteredRooms = rooms.filter(r => {
-    const matchesType = selectedRoomType === 'All' || r.roomType === selectedRoomType;
-    const hasAvailableBeds = r.beds.some(b => b.status === 'Available');
-    return matchesType && hasAvailableBeds;
-  });
+  renderContextDrawer() {
+    const s = this.selectedStock;
+    if (!s) return `<div class="drawer-backdrop" id="context-drawer-backdrop"><div class="context-drawer"></div></div>`;
 
-  if (filteredRooms.length === 0) {
-    container.innerHTML = `<div class="user-empty-state"><span class="user-empty-icon">😔</span><h3>No Beds Available</h3><p>No beds matching your criteria are currently available.</p></div>`;
-    return;
-  }
+    const isPos = s.change_pct >= 0;
+    const dayRangeSpan = (s.high_price - s.low_price) || 1;
+    const pinPct = Math.min(100, Math.max(0, ((s.last_price - s.low_price) / dayRangeSpan) * 100));
 
-  container.innerHTML = filteredRooms.map(room => {
-    const tariff = ROOM_TARIFFS[room.roomType] || 1500;
-    const availableBeds = room.beds.filter(b => b.status === 'Available');
     return `
-      <div class="user-room-card">
-        <div class="user-room-header">
-          <div>
-            <div class="user-room-title">Room ${room.roomNumber} <span class="badge badge-subtle">${room.roomType}</span></div>
-            <div class="text-muted text-xs">₹${tariff.toLocaleString()}/day</div>
+      <div class="drawer-backdrop open" id="context-drawer-backdrop">
+        <div class="context-drawer" id="context-drawer-panel">
+          <div class="drawer-header">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <h2 style="font-size: 1.4rem; font-weight: 800;">${s.symbol}</h2>
+                <span class="ticker-sector-pill">${s.sector}</span>
+              </div>
+              <p style="color: var(--text-secondary); font-size: 0.85rem;">${s.company_name} • ${s.industry || 'General'}</p>
+            </div>
+            <button class="drawer-close-btn" id="btn-close-drawer">✕</button>
           </div>
-          <div class="text-muted text-xs">${availableBeds.length} bed${availableBeds.length !== 1 ? 's' : ''} available</div>
-        </div>
-        <div class="user-beds-row">
-          ${availableBeds.map(bed => `
-            <button class="user-bed-btn" 
-              data-hospid="${hospital.id}" data-hospname="${escapeHtml(hospital.hospitalName)}" 
-              data-dept="${escapeHtml(hospital.department)}" data-roomtype="${room.roomType}"
-              data-room="${room.roomNumber}" data-bed="${bed.bedNumber}">
-              🛏 Bed ${bed.bedNumber}
+
+          <!-- Price & Live 500ms Indicator -->
+          <div style="display: flex; align-items: baseline; justify-content: space-between; padding: 0.25rem 0;">
+            <div style="display: flex; align-items: baseline; gap: 0.85rem;">
+              <span style="font-size: 2rem; font-weight: 800; font-family: var(--font-mono);">
+                ₹<span id="drawer-price">${this.formatINR(s.last_price)}</span>
+              </span>
+              <span class="ticker-delta-pill ${isPos ? 'delta-positive' : 'delta-negative'}" id="drawer-delta">
+                ${isPos ? '▲ +' : '▼ '}${s.change_pct}% (₹${this.formatINR(s.change)})
+              </span>
+            </div>
+            <span class="smart-badge badge-volume" style="font-size: 0.65rem;">🟢 Live 500ms Feed</span>
+          </div>
+
+          <!-- Day's Range Slider -->
+          <div class="day-range-wrapper">
+            <div class="day-range-labels">
+              <span>Day Low: ₹<span id="drawer-low">${this.formatINR(s.low_price)}</span></span>
+              <span>Day High: ₹<span id="drawer-high">${this.formatINR(s.high_price)}</span></span>
+            </div>
+            <div class="day-range-track">
+              <div class="day-range-pin" id="drawer-range-pin" style="left: ${pinPct}%;"></div>
+            </div>
+          </div>
+
+          <!-- Why It's Moving (Natural Language AI Card) -->
+          <div class="intelligence-card">
+            <div class="intelligence-title">
+              <span>⚡</span>
+              <span>Why It's Moving (Signal Engine)</span>
+            </div>
+            <p class="intelligence-body" id="drawer-explanation">
+              ${s.explanation || 'Trading in line with benchmark parameters.'}
+            </p>
+          </div>
+
+          <!-- Live Order Book Depth (Top of Book) -->
+          <div>
+            <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase;">
+              Top-of-Book Market Depth
+            </h3>
+            <div class="orderbook-grid">
+              <div class="orderbook-side-card bid">
+                <div class="orderbook-header">
+                  <span>BEST BID</span>
+                  <span id="drawer-bid-qty">${s.bid_qty || 1200} QTY</span>
+                </div>
+                <div style="font-size: 1.1rem; font-weight: 800; font-family: var(--font-mono);">
+                  ₹<span id="drawer-bid-price">${this.formatINR(s.bid_price || (s.last_price - 0.15))}</span>
+                </div>
+              </div>
+
+              <div class="orderbook-side-card ask">
+                <div class="orderbook-header">
+                  <span>BEST ASK</span>
+                  <span id="drawer-ask-qty">${s.ask_qty || 950} QTY</span>
+                </div>
+                <div style="font-size: 1.1rem; font-weight: 800; font-family: var(--font-mono);">
+                  ₹<span id="drawer-ask-price">${this.formatINR(s.ask_price || (s.last_price + 0.15))}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Deep Financial Valuation Ratios -->
+          <div>
+            <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase;">
+              Key Financial & Valuation Metrics
+            </h3>
+            <div class="fundamentals-grid">
+              <div class="stat-box">
+                <span class="stat-label">Market Cap</span>
+                <span class="stat-value">₹${(s.market_cap_cr / 1000).toFixed(1)}k Cr</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-label">P/E (Price to Earnings)</span>
+                <span class="stat-value">${s.pe_ratio > 0 ? s.pe_ratio : 'Turnaround'}</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-label">P/B (Price to Book)</span>
+                <span class="stat-value">${s.pb_ratio || 3.2}x</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-label">Dividend Yield</span>
+                <span class="stat-value">${s.dividend_yield || 1.1}%</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-label">ROE (Return on Equity)</span>
+                <span class="stat-value">${s.roe_pct || 18.5}%</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-label">Sector Beta</span>
+                <span class="stat-value">${s.beta ? s.beta.toFixed(2) : '1.00'}</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-label">52-Week Range</span>
+                <span class="stat-value">₹${this.formatINR(s.fifty_two_week_low)} - ₹${this.formatINR(s.fifty_two_week_high)}</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-label">Upcoming Catalyst</span>
+                <span class="stat-value" style="color: var(--catalyst-color);">${s.next_earnings_date || 'TBD'}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Analyst Consensus Rating -->
+          <div class="analyst-consensus-card">
+            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 700;">
+              <span>Analyst Recommendation Consensus</span>
+              <span style="color: var(--gain-color);">${s.analyst_buy_pct || 82}% BUY</span>
+            </div>
+            <div class="analyst-bar">
+              <div class="analyst-segment-buy" style="width: ${s.analyst_buy_pct || 82}%;"></div>
+              <div class="analyst-segment-hold" style="width: ${s.analyst_hold_pct || 12}%;"></div>
+              <div class="analyst-segment-sell" style="width: ${s.analyst_sell_pct || 6}%;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-muted);">
+              <span>${s.analyst_buy_pct || 82}% Buy</span>
+              <span>${s.analyst_hold_pct || 12}% Hold</span>
+              <span>${s.analyst_sell_pct || 6}% Sell</span>
+            </div>
+          </div>
+
+          <!-- Personal Investor Notes & Tags Editor -->
+          <div class="notes-editor-card">
+            <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">
+              Your Investment Thesis (Saved to SQLite DB)
+            </h3>
+            <textarea 
+              id="stock-notes-input" 
+              class="notes-textarea" 
+              placeholder="Record your thesis (e.g. Q2 volume accumulation confirms institutional buying, resistance at ₹2,000)..."
+            >${this.getActiveItemNotes(s.symbol)}</textarea>
+
+            <div class="form-group">
+              <label class="form-label">Custom Tags (comma separated)</label>
+              <input 
+                type="text" 
+                id="stock-tags-input" 
+                class="form-input" 
+                placeholder="e.g. Breakout, Catalyst, High-Beta"
+                value="${this.getActiveItemTags(s.symbol)}"
+              />
+            </div>
+
+            <button class="btn-primary" id="btn-save-notes" style="width: fit-content; align-self: flex-end;">
+              💾 Save Notes & Tags
             </button>
-          `).join('')}
+          </div>
         </div>
       </div>
     `;
-  }).join('');
-
-  // Handle bed selection → navigate to booking form (pre-filled)
-  container.querySelectorAll('.user-bed-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const hospId = btn.getAttribute('data-hospid');
-      const dept = btn.getAttribute('data-dept');
-      const roomType = btn.getAttribute('data-roomtype');
-      const roomNum = btn.getAttribute('data-room');
-      const bedNum = btn.getAttribute('data-bed');
-
-      prepopulateBookingForm(hospId, dept, roomType, roomNum, bedNum);
-      switchSection('book-bed');
-      showToast(`Selected Bed ${bedNum} in Room ${roomNum}. Fill in patient details below.`, 'info');
-    });
-  });
-}
-
-function renderUserMyBookings() {
-  const container = document.getElementById('userMyBookingsContainer');
-  if (!container) return;
-
-  const userBookings = allBookings; // Already filtered by role in subscribeToBookings
-
-  if (userBookings.length === 0) {
-    container.innerHTML = `<div class="user-empty-state"><span class="user-empty-icon">📋</span><h3>No Bookings Yet</h3><p>You haven't made any bed booking requests. <a href="#user-available-beds" class="link-primary" onclick="event.preventDefault(); switchSection && switchSection('user-available-beds');">Browse available beds</a>.</p></div>`;
-    return;
   }
 
-  const statusMap = {
-    'Pending': { cls: 'badge-warning', icon: '⏳' },
-    'Admitted': { cls: 'badge-available', icon: '✅' },
-    'Discharged': { cls: 'badge-subtle', icon: '🏠' },
-    'Cancelled': { cls: 'badge-critical', icon: '❌' }
-  };
-
-  container.innerHTML = `
-    <div class="user-bookings-list">
-      ${userBookings.map(b => {
-        const s = statusMap[b.bookingStatus] || { cls: 'badge-subtle', icon: '❓' };
-        return `
-          <div class="user-booking-card">
-            <div class="user-booking-header">
-              <div>
-                <div class="user-booking-patient">${escapeHtml(b.patientName)}</div>
-                <div class="text-muted text-xs">ID: ${escapeHtml(b.patientId)} | ${escapeHtml(b.gender)}, Age ${b.age}</div>
-              </div>
-              <span class="badge ${s.cls}">${s.icon} ${b.bookingStatus}</span>
-            </div>
-            <div class="user-booking-details">
-              <div>🏥 ${escapeHtml(b.hospitalName)}</div>
-              <div>🏢 ${escapeHtml(b.department)} — Room ${b.roomNumber}, Bed ${b.bedNumber}</div>
-              <div>📅 Admission: ${b.admissionDate} | Discharge: ${b.expectedDischargeDate}</div>
-              <div>💰 Estimated Cost: <strong>₹${(b.estimatedCost || 0).toLocaleString()}</strong></div>
-            </div>
-            ${b.bookingStatus === 'Pending' ? `
-              <div class="user-booking-footer">
-                <span class="text-muted text-xs">⏳ Awaiting hospital approval</span>
-              </div>
-            ` : ''}
-          </div>
-        `;
-      }).join('')}
-    </div>
-  `;
-}
-
-// ================= Admin Booking Approvals Table =================
-function renderAdminBookingsTable() {
-  const tbody = document.getElementById('adminBookingsTableBody');
-  if (!tbody) return;
-
-  const allAdminBookings = allBookings;
-
-  if (allAdminBookings.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted">No booking requests found.</td></tr>`;
-    return;
+  getActiveItemNotes(symbol) {
+    const activeWl = this.getActiveWatchlist();
+    const item = activeWl?.items?.find(i => i.symbol === symbol);
+    return item?.notes || '';
   }
 
-  const statusMap = {
-    'Pending': 'badge-warning',
-    'Admitted': 'badge-available',
-    'Discharged': 'badge-subtle',
-    'Cancelled': 'badge-critical'
-  };
+  getActiveItemTags(symbol) {
+    const activeWl = this.getActiveWatchlist();
+    const item = activeWl?.items?.find(i => i.symbol === symbol);
+    return item?.custom_tags ? item.custom_tags.join(', ') : '';
+  }
 
-  tbody.innerHTML = allAdminBookings.map(b => {
-    const statusClass = statusMap[b.bookingStatus] || 'badge-subtle';
+  // --- Chaos Toolkit ---
+
+  renderChaosToolkit() {
     return `
-      <tr>
-        <td><strong>${escapeHtml(b.patientName)}</strong><br><span class="text-xs text-muted">${escapeHtml(b.patientId)}</span></td>
-        <td>${escapeHtml(b.hospitalName)}</td>
-        <td>${escapeHtml(b.department)}</td>
-        <td>Room ${b.roomNumber} – Bed ${b.bedNumber}</td>
-        <td><span class="badge ${statusClass}">${b.bookingStatus}</span></td>
-        <td>${b.admissionDate}</td>
-        <td>
-          ${b.bookingStatus === 'Pending' ? `
-            <button class="btn btn-success btn-xs admin-confirm-btn" data-id="${b.id}" style="margin-right:4px;">✅ Approve</button>
-            <button class="btn btn-outline-danger btn-xs admin-reject-btn" data-id="${b.id}">❌ Reject</button>
-          ` : b.bookingStatus === 'Admitted' ? `
-            <button class="btn btn-outline-danger btn-xs discharge-btn" data-id="${b.id}">Discharge</button>
-          ` : `<span class="text-muted text-xs">Closed</span>`}
-        </td>
-      </tr>
+      <div class="chaos-bar">
+        <div class="chaos-panel ${this.chaosOpen ? 'open' : ''}" id="chaos-panel">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
+            <strong style="font-size: 0.85rem; color: var(--surge-color);">🧪 Judge Evaluation Panel</strong>
+            <button class="drawer-close-btn" id="btn-close-chaos" style="width: 24px; height: 24px; font-size: 0.75rem;">✕</button>
+          </div>
+          <p style="font-size: 0.75rem; color: var(--text-muted);">
+            Inject chaos events into the 500ms live stream to test system resilience:
+          </p>
+          <button class="chaos-btn" id="chaos-volume-spike">
+            ⚡ Trigger Volume Surge (INFY +3.5%, 3.4σ)
+          </button>
+          <button class="chaos-btn" id="chaos-market-dip">
+            📉 Simulate Flash Pullback (-1.5% Sector Dip)
+          </button>
+          <button class="chaos-btn" id="chaos-offline">
+            🔌 Drop Network (Test Offline & Stale Pill)
+          </button>
+          <button class="chaos-btn" id="chaos-reconnect">
+            🔄 Reconnect Live WebSocket
+          </button>
+        </div>
+
+        <button class="chaos-trigger-btn" id="btn-toggle-chaos">
+          <span>🧪</span>
+          <span>Judge Testing Toolkit</span>
+        </button>
+      </div>
     `;
-  }).join('');
+  }
 
-  // Admin approve booking
-  tbody.querySelectorAll('.admin-confirm-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      const id = btn.getAttribute('data-id');
-      const res = await confirmPatientBooking(id);
-      if (res.success) {
-        showToast('Booking approved and patient admitted!', 'success');
-        renderAdminBookingsTable();
-      } else {
-        showToast(res.message || 'Approval failed.', 'error');
-        btn.disabled = false;
-      }
-    });
-  });
+  renderCreateWlModal() {
+    if (!this.showCreateWlModal) return '';
 
-  // Admin reject booking
-  tbody.querySelectorAll('.admin-reject-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      const id = btn.getAttribute('data-id');
-      const res = await cancelPatientBooking(id);
-      if (res.success) {
-        showToast('Booking request rejected.', 'info');
-        renderAdminBookingsTable();
-      } else {
-        showToast(res.message || 'Rejection failed.', 'error');
-        btn.disabled = false;
-      }
-    });
-  });
+    return `
+      <div class="auth-backdrop" id="modal-create-wl-backdrop">
+        <div class="auth-card" style="max-width: 400px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 1.1rem; font-weight: 700;">Create New Watchlist</h3>
+            <button class="drawer-close-btn" id="btn-close-create-wl">✕</button>
+          </div>
+          <form id="create-wl-form" style="display: flex; flex-direction: column; gap: 1rem;">
+            <div class="form-group">
+              <label class="form-label">Watchlist Name</label>
+              <input type="text" id="new-wl-name" class="form-input" placeholder="e.g. Dividend Yielders, EV Watch" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Description (Optional)</label>
+              <input type="text" id="new-wl-desc" class="form-input" placeholder="e.g. Stocks to monitor for breakout" />
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
+              <button type="button" class="btn-remove-stock" id="btn-cancel-create-wl" style="padding: 0.5rem 1rem;">Cancel</button>
+              <button type="submit" class="btn-primary">Create List</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+  }
 
-  // Discharge admitted patient
-  tbody.querySelectorAll('.discharge-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const id = btn.getAttribute('data-id');
-      const booking = allBookings.find(b => b.id === id);
-      if (booking) openDischargeModal(booking);
+  // --- Dynamic 500ms Partial Updates ---
+
+  updateSingleRowUI(rowElem, stock, flashClass) {
+    const isPos = stock.change_pct >= 0;
+    const isSurge = stock.volume_z_score >= 2.0;
+
+    const priceText = rowElem.querySelector('.price-text');
+    if (priceText) priceText.textContent = this.formatINR(stock.last_price);
+
+    const vwapText = rowElem.querySelector('.vwap-text');
+    if (vwapText) vwapText.textContent = this.formatINR(stock.vwap);
+
+    const deltaPill = rowElem.querySelector('.ticker-delta-pill');
+    if (deltaPill) {
+      deltaPill.className = `ticker-delta-pill ${isPos ? 'delta-positive' : 'delta-negative'}`;
+      deltaPill.innerHTML = `${isPos ? '▲ +' : '▼ '}${stock.change_pct}%`;
+    }
+
+    const deltaAmt = rowElem.querySelector('.ticker-delta-amt');
+    if (deltaAmt) {
+      deltaAmt.textContent = `${isPos ? '+' : ''}₹${this.formatINR(stock.change)}`;
+    }
+
+    const volVal = rowElem.querySelector('.vol-val');
+    if (volVal) volVal.textContent = `${(stock.current_volume / 100000).toFixed(2)}L`;
+
+    const zBadge = rowElem.querySelector('.z-score-badge');
+    if (zBadge) {
+      zBadge.className = `z-score-badge ${isSurge ? 'z-score-surge' : ''}`;
+      zBadge.innerHTML = `${isSurge ? '⚡ ' : ''}${stock.volume_z_score.toFixed(1)}σ`;
+    }
+
+    const signalsCol = rowElem.querySelector('.ticker-col-signals');
+    if (signalsCol) {
+      signalsCol.innerHTML = this.renderSignalBadges(stock.active_signals);
+    }
+
+    const sparkSvg = rowElem.querySelector('.sparkline-svg');
+    if (sparkSvg) {
+      sparkSvg.outerHTML = this.renderSparklineSVG(stock.sparkline, isPos);
+    }
+
+    if (flashClass) {
+      rowElem.classList.remove('flash-up', 'flash-down');
+      void rowElem.offsetWidth; // Reflow
+      rowElem.classList.add(flashClass);
+    }
+  }
+
+  updateDrawerLiveStats() {
+    if (!this.selectedStock) return;
+    const s = this.selectedStock;
+    const isPos = s.change_pct >= 0;
+
+    const price = document.getElementById('drawer-price');
+    if (price) price.textContent = this.formatINR(s.last_price);
+
+    const delta = document.getElementById('drawer-delta');
+    if (delta) {
+      delta.className = `ticker-delta-pill ${isPos ? 'delta-positive' : 'delta-negative'}`;
+      delta.innerHTML = `${isPos ? '▲ +' : '▼ '}${s.change_pct}% (₹${this.formatINR(s.change)})`;
+    }
+
+    const exp = document.getElementById('drawer-explanation');
+    if (exp) exp.textContent = s.explanation || '';
+
+    const low = document.getElementById('drawer-low');
+    const high = document.getElementById('drawer-high');
+    if (low) low.textContent = this.formatINR(s.low_price);
+    if (high) high.textContent = this.formatINR(s.high_price);
+
+    const pin = document.getElementById('drawer-range-pin');
+    if (pin) {
+      const span = (s.high_price - s.low_price) || 1;
+      const pct = Math.min(100, Math.max(0, ((s.last_price - s.low_price) / span) * 100));
+      pin.style.left = `${pct}%`;
+    }
+
+    const bidPrice = document.getElementById('drawer-bid-price');
+    const bidQty = document.getElementById('drawer-bid-qty');
+    const askPrice = document.getElementById('drawer-ask-price');
+    const askQty = document.getElementById('drawer-ask-qty');
+    if (bidPrice) bidPrice.textContent = this.formatINR(s.bid_price);
+    if (bidQty) bidQty.textContent = `${s.bid_qty} QTY`;
+    if (askPrice) askPrice.textContent = this.formatINR(s.ask_price);
+    if (askQty) askQty.textContent = `${s.ask_qty} QTY`;
+  }
+
+  updateIndicesUI() {
+    const container = document.getElementById('indices-bar');
+    if (!container) return;
+    container.innerHTML = Object.values(this.indices).map(idx => {
+      const isPos = idx.change_pct >= 0;
+      return `
+        <div class="index-chip">
+          <span class="index-chip-name">${idx.name}</span>
+          <span class="index-chip-price">${this.formatINR(idx.price)}</span>
+          <span class="index-chip-delta ${isPos ? 'delta-positive' : 'delta-negative'}">
+            ${isPos ? '▲ +' : '▼ '}${idx.change_pct}%
+          </span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  updateTelemetryBadge() {
+    const pill = document.getElementById('telemetry-pill');
+    const text = document.getElementById('telemetry-text');
+    if (!pill || !text) return;
+
+    pill.className = `telemetry-pill ${this.isDelayedFeed ? 'delayed' : (this.connectionStatus === 'OFFLINE' ? 'stale' : '')}`;
+    text.textContent = this.isDelayedFeed 
+      ? '🟡 Delayed Feed (Simulated)' 
+      : (this.connectionStatus === 'LIVE' ? `Live 500ms • ${this.lastLatency}ms` : this.connectionStatus);
+  }
+
+  // --- Event Bindings ---
+
+  attachRegisterPageEvents() {
+    // 1-Click Judge Demo from Registration
+    const demoBtn = document.getElementById('btn-demo-from-reg');
+    if (demoBtn) {
+      demoBtn.addEventListener('click', () => this.handleJudgeDemoLogin());
+    }
+
+    // Switch to Login
+    const switchBtn = document.getElementById('btn-switch-to-login');
+    if (switchBtn) {
+      switchBtn.addEventListener('click', () => {
+        this.currentView = 'login';
+        this.render();
+      });
+    }
+
+    // Sector chip picker
+    const chips = document.querySelectorAll('.sector-picker-chip');
+    chips.forEach(chip => {
+      chip.addEventListener('click', () => {
+        const sec = chip.getAttribute('data-sector');
+        if (this.selectedRegisterSectors.includes(sec)) {
+          this.selectedRegisterSectors = this.selectedRegisterSectors.filter(s => s !== sec);
+          chip.classList.remove('selected');
+        } else {
+          this.selectedRegisterSectors.push(sec);
+          chip.classList.add('selected');
+        }
+      });
     });
-  });
+
+    // Form submit
+    const form = document.getElementById('dedicated-register-form');
+    if (form) {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const name = document.getElementById('reg-name').value;
+        const email = document.getElementById('reg-email').value;
+        const password = document.getElementById('reg-password').value;
+        const experience = document.getElementById('reg-experience').value;
+        this.handleRegister(name, email, password, experience, this.selectedRegisterSectors);
+      });
+    }
+  }
+
+  attachLoginPageEvents() {
+    const demoBtn = document.getElementById('btn-demo-from-login');
+    if (demoBtn) {
+      demoBtn.addEventListener('click', () => this.handleJudgeDemoLogin());
+    }
+
+    const switchBtn = document.getElementById('btn-switch-to-register');
+    if (switchBtn) {
+      switchBtn.addEventListener('click', () => {
+        this.currentView = 'register';
+        this.render();
+      });
+    }
+
+    const form = document.getElementById('dedicated-login-form');
+    if (form) {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        this.handleLogin(email, password);
+      });
+    }
+  }
+
+  attachDashboardEvents() {
+    // Theme toggle
+    const themeBtn = document.getElementById('theme-toggle-btn');
+    if (themeBtn) {
+      themeBtn.addEventListener('click', () => {
+        this.theme = this.theme === 'dark' ? 'light' : 'dark';
+        localStorage.setItem('pulsewatch_theme', this.theme);
+        document.documentElement.setAttribute('data-theme', this.theme);
+        themeBtn.textContent = this.theme === 'dark' ? '☀️' : '🌙';
+      });
+    }
+
+    // User logout
+    const userBtn = document.getElementById('user-menu-btn');
+    if (userBtn) {
+      userBtn.addEventListener('click', () => {
+        if (confirm('Do you want to log out?')) {
+          this.logout();
+        }
+      });
+    }
+
+    // Watchlist tabs
+    const wlTabs = document.querySelectorAll('.wl-tab');
+    wlTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const id = Number(tab.getAttribute('data-wl-id'));
+        if (id) {
+          this.activeWatchlistId = id;
+          this.render();
+        }
+      });
+    });
+
+    // Create watchlist modal
+    const openCreateWlBtn = document.getElementById('btn-open-create-wl');
+    if (openCreateWlBtn) {
+      openCreateWlBtn.addEventListener('click', () => {
+        this.showCreateWlModal = true;
+        this.render();
+      });
+    }
+
+    const closeCreateWlBtn = document.getElementById('btn-close-create-wl');
+    const cancelCreateWlBtn = document.getElementById('btn-cancel-create-wl');
+    if (closeCreateWlBtn) closeCreateWlBtn.addEventListener('click', () => { this.showCreateWlModal = false; this.render(); });
+    if (cancelCreateWlBtn) cancelCreateWlBtn.addEventListener('click', () => { this.showCreateWlModal = false; this.render(); });
+
+    const createWlForm = document.getElementById('create-wl-form');
+    if (createWlForm) {
+      createWlForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const name = document.getElementById('new-wl-name').value;
+        const desc = document.getElementById('new-wl-desc').value;
+        this.createWatchlist(name, desc);
+      });
+    }
+
+    // Filter chips
+    const filterChips = document.querySelectorAll('.filter-chip');
+    filterChips.forEach(chip => {
+      chip.addEventListener('click', () => {
+        this.activeFilter = chip.getAttribute('data-filter');
+        this.render();
+      });
+    });
+
+    // Search and Autocomplete — with dynamic NSE stock add
+    const searchInput = document.getElementById('stock-search-input');
+    const searchDropdown = document.getElementById('search-dropdown');
+    if (searchInput && searchDropdown) {
+      
+      const renderDropdown = (q) => {
+        const showAddNew = q.length >= 2;
+
+        searchDropdown.style.display = (this.searchResults.length > 0 || showAddNew) ? 'block' : 'none';
+        searchDropdown.innerHTML = this.searchResults.map(stock => `
+          <div class="search-result-item" data-symbol="${stock.symbol}">
+            <div>
+              <strong>${stock.symbol}</strong>
+              <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.5rem;">${stock.company_name}</span>
+            </div>
+            <div>
+              <span style="font-family: var(--font-mono); font-size: 0.85rem;">₹${this.formatINR(stock.last_price)}</span>
+              <button class="btn-primary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; margin-left: 0.75rem;">+ Add</button>
+            </div>
+          </div>
+        `).join('') + (showAddNew ? `
+          <div class="search-result-item search-add-new" data-new-symbol="${q}" style="border-top: 1px solid var(--border-color); margin-top: 0.25rem; padding-top: 0.5rem; cursor: pointer;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span style="font-size: 1.1rem;">🔍</span>
+              <div>
+                <strong style="color: var(--accent-primary); font-size: 0.95rem;">${q}</strong>
+                <span style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-top: 0.1rem;">Search & add any NSE-listed stock with live data</span>
+              </div>
+            </div>
+            <button
+              id="btn-add-new-${q}"
+              class="btn-primary"
+              style="padding: 0.35rem 0.85rem; font-size: 0.78rem; background: linear-gradient(135deg, #4f46e5, #7c3aed); white-space: nowrap; border-radius: 6px;"
+            >+ Add & Track</button>
+          </div>
+        ` : '');
+
+        // Existing master stocks — click to add to watchlist
+        searchDropdown.querySelectorAll('.search-result-item:not(.search-add-new)').forEach(item => {
+          item.addEventListener('click', () => {
+            const sym = item.getAttribute('data-symbol');
+            if (sym) {
+              this.addStockToWatchlist(sym);
+              searchInput.value = '';
+              this.searchQuery = '';
+              searchDropdown.style.display = 'none';
+            }
+          });
+        });
+
+        // New unknown symbol — click row or button to fetch & add
+        const addNewItem = searchDropdown.querySelector('.search-add-new');
+        if (addNewItem) {
+          const handleAddNew = (ev) => {
+            ev.stopPropagation();
+            const sym = addNewItem.getAttribute('data-new-symbol');
+            if (sym) {
+              this.addNewStockAndTrack(sym);
+              searchInput.value = '';
+              this.searchQuery = '';
+              searchDropdown.style.display = 'none';
+            }
+          };
+          addNewItem.addEventListener('click', handleAddNew);
+        }
+      };
+
+      searchInput.addEventListener('focus', () => {
+        if (!this.searchQuery) {
+          // Show all stocks when empty and focused
+          this.searchResults = this.allMasterStocks.slice(0, 10);
+          renderDropdown('');
+        }
+      });
+
+      searchInput.addEventListener('input', (e) => {
+        const q = e.target.value.trim().toUpperCase();
+        this.searchQuery = q;
+        if (q.length > 0) {
+          const searchTerms = [q];
+          if (q.includes('KALU') || q.includes('KALYAN') || q.includes('JEWEL')) {
+            searchTerms.push('KALYANKJIL', 'KALYAN');
+          }
+          if (q.includes('SENSEX') || q.includes('BSESN')) {
+            searchTerms.push('SENSEX', 'BSE');
+          }
+
+          this.searchResults = this.allMasterStocks.filter(s =>
+            searchTerms.some(term => s.symbol.toUpperCase().includes(term) || s.company_name.toUpperCase().includes(term))
+          ).slice(0, 6);
+        } else {
+          // If empty, revert to showing a few default stocks
+          this.searchResults = this.allMasterStocks.slice(0, 10);
+        }
+        renderDropdown(q);
+      });
+      
+      // Hide dropdown when clicking outside
+      document.addEventListener('click', (e) => {
+        if (!searchInput.contains(e.target) && !searchDropdown.contains(e.target)) {
+          searchDropdown.style.display = 'none';
+        }
+      });
+    }
+
+    // Row click -> Open Drawer
+    const rows = document.querySelectorAll('.ticker-row');
+    rows.forEach(row => {
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-remove-stock')) return;
+        const sym = row.getAttribute('data-symbol');
+        const stock = this.stocksMap.get(sym);
+        if (stock) {
+          this.selectedStock = stock;
+          this.render();
+        }
+      });
+    });
+
+    // Remove buttons
+    const removeBtns = document.querySelectorAll('.btn-remove-stock');
+    removeBtns.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const sym = btn.getAttribute('data-remove-symbol');
+        if (sym) this.removeStockFromWatchlist(sym, e);
+      });
+    });
+
+    // Drawer close
+    const closeDrawerBtn = document.getElementById('btn-close-drawer');
+    const drawerBackdrop = document.getElementById('context-drawer-backdrop');
+    if (closeDrawerBtn) {
+      closeDrawerBtn.addEventListener('click', () => {
+        this.selectedStock = null;
+        this.render();
+      });
+    }
+    if (drawerBackdrop) {
+      drawerBackdrop.addEventListener('click', (e) => {
+        if (e.target === drawerBackdrop) {
+          this.selectedStock = null;
+          this.render();
+        }
+      });
+    }
+
+    // Save notes
+    const saveNotesBtn = document.getElementById('btn-save-notes');
+    if (saveNotesBtn && this.selectedStock) {
+      saveNotesBtn.addEventListener('click', () => {
+        const notes = document.getElementById('stock-notes-input').value;
+        const tags = document.getElementById('stock-tags-input').value;
+        this.saveStockNotes(this.selectedStock.symbol, notes, tags);
+      });
+    }
+
+    // Chaos Toolkit
+    const toggleChaosBtn = document.getElementById('btn-toggle-chaos');
+    const closeChaosBtn = document.getElementById('btn-close-chaos');
+    if (toggleChaosBtn) {
+      toggleChaosBtn.addEventListener('click', () => {
+        this.chaosOpen = !this.chaosOpen;
+        this.render();
+      });
+    }
+    if (closeChaosBtn) {
+      closeChaosBtn.addEventListener('click', () => {
+        this.chaosOpen = false;
+        this.render();
+      });
+    }
+
+    const chaosSpikeBtn = document.getElementById('chaos-volume-spike');
+    if (chaosSpikeBtn) {
+      chaosSpikeBtn.addEventListener('click', () => this.triggerChaos('volume_spike', 'INFY'));
+    }
+
+    const chaosDipBtn = document.getElementById('chaos-market-dip');
+    if (chaosDipBtn) {
+      chaosDipBtn.addEventListener('click', () => this.triggerChaos('market_dip'));
+    }
+
+    const chaosOfflineBtn = document.getElementById('chaos-offline');
+    if (chaosOfflineBtn) {
+      chaosOfflineBtn.addEventListener('click', () => this.toggleOfflineMode(true));
+    }
+
+    const chaosReconnectBtn = document.getElementById('chaos-reconnect');
+    if (chaosReconnectBtn) {
+      chaosReconnectBtn.addEventListener('click', () => this.toggleOfflineMode(false));
+    }
+  }
 }
 
-// ================= Toast Notification System =================
-export function showToast(message, type = 'info') {
-  const container = document.getElementById('toastContainer');
-  if (!container) return;
-
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  
-  let iconHtml = 'ℹ️';
-  if (type === 'success') iconHtml = '✅';
-  if (type === 'error') iconHtml = '⚠️';
-
-  toast.innerHTML = `
-    <span>${iconHtml}</span>
-    <div>${escapeHtml(message)}</div>
-  `;
-
-  container.appendChild(toast);
-
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateX(40px)';
-    toast.style.transition = 'all 0.3s ease';
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
-}
+// Instantiate App
+window.addEventListener('DOMContentLoaded', () => {
+  window.app = new App();
+});
