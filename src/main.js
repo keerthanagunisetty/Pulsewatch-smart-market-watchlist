@@ -50,15 +50,52 @@ class App {
       ...(options.headers || {})
     };
 
-    const url = endpoint.startsWith('http') ? endpoint : `/api${endpoint}`;
-    const response = await fetch(url, { ...options, headers });
+    const targetUrl = endpoint.startsWith('http')
+      ? endpoint
+      : `/api${endpoint}`;
+
+    let response;
+    try {
+      response = await fetch(targetUrl, { ...options, headers });
+    } catch (netErr) {
+      // Fallback directly to backend port 3001 if proxy failed
+      if (!endpoint.startsWith('http')) {
+        try {
+          response = await fetch(`http://${window.location.hostname || 'localhost'}:3001/api${endpoint}`, { ...options, headers });
+        } catch (fallbackErr) {
+          throw new Error('Cannot connect to PulseWatch backend server. Please verify "node server/index.js" is running on port 3001.');
+        }
+      } else {
+        throw netErr;
+      }
+    }
     
     if (response.status === 401) {
       this.logout();
       throw new Error('Session expired');
     }
 
-    const data = await response.json();
+    const contentType = response.headers.get('content-type') || '';
+    let data;
+    if (contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      // If Vite returned an HTML error page, retry directly with port 3001
+      if (!endpoint.startsWith('http')) {
+        try {
+          const directRes = await fetch(`http://${window.location.hostname || 'localhost'}:3001/api${endpoint}`, { ...options, headers });
+          if (directRes.headers.get('content-type')?.includes('application/json')) {
+            data = await directRes.json();
+            if (!directRes.ok) throw new Error(data.error || 'Request failed');
+            return data;
+          }
+        } catch (retryErr) {
+          // ignore
+        }
+      }
+      throw new Error(`Server connection issue (${response.status}). Please check if the backend server is running.`);
+    }
+
     if (!response.ok) {
       throw new Error(data.error || 'Request failed');
     }
