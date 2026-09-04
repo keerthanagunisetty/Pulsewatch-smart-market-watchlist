@@ -95,7 +95,7 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`====================================================`);
   console.log(`🚀 Smart Market Watchlist Server running on port ${PORT}`);
   console.log(`📡 WebSocket endpoint: ws://localhost:${PORT}/ws`);

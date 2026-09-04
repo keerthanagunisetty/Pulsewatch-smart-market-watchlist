@@ -43,6 +43,13 @@ class App {
 
   // --- API Methods ---
 
+  getApiBaseUrl() {
+    if (window.location.port === '5173' || window.location.port === '4173') {
+      return `http://${window.location.hostname || 'localhost'}:3001/api`;
+    }
+    return '/api';
+  }
+
   async apiRequest(endpoint, options = {}) {
     const headers = {
       'Content-Type': 'application/json',
@@ -50,23 +57,20 @@ class App {
       ...(options.headers || {})
     };
 
+    const cleanEp = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     const targetUrl = endpoint.startsWith('http')
       ? endpoint
-      : `/api${endpoint}`;
+      : `${this.getApiBaseUrl()}${cleanEp}`;
 
     let response;
     try {
       response = await fetch(targetUrl, { ...options, headers });
     } catch (netErr) {
-      // Fallback directly to backend port 3001 if proxy failed
-      if (!endpoint.startsWith('http')) {
-        try {
-          response = await fetch(`http://${window.location.hostname || 'localhost'}:3001/api${endpoint}`, { ...options, headers });
-        } catch (fallbackErr) {
-          throw new Error('Cannot connect to PulseWatch backend server. Please verify "node server/index.js" is running on port 3001.');
-        }
-      } else {
-        throw netErr;
+      // Fallback directly to localhost:3001
+      try {
+        response = await fetch(`http://localhost:3001/api${cleanEp}`, { ...options, headers });
+      } catch (fbErr) {
+        throw new Error('Cannot connect to PulseWatch server on port 3001.');
       }
     }
     
@@ -75,29 +79,15 @@ class App {
       throw new Error('Session expired');
     }
 
-    const contentType = response.headers.get('content-type') || '';
     let data;
-    if (contentType.includes('application/json')) {
+    try {
       data = await response.json();
-    } else {
-      // If Vite returned an HTML error page, retry directly with port 3001
-      if (!endpoint.startsWith('http')) {
-        try {
-          const directRes = await fetch(`http://${window.location.hostname || 'localhost'}:3001/api${endpoint}`, { ...options, headers });
-          if (directRes.headers.get('content-type')?.includes('application/json')) {
-            data = await directRes.json();
-            if (!directRes.ok) throw new Error(data.error || 'Request failed');
-            return data;
-          }
-        } catch (retryErr) {
-          // ignore
-        }
-      }
-      throw new Error(`Server connection issue (${response.status}). Please check if the backend server is running.`);
+    } catch (parseErr) {
+      throw new Error(`Server returned status ${response.status}. Please check backend server.`);
     }
 
     if (!response.ok) {
-      throw new Error(data.error || 'Request failed');
+      throw new Error(data?.error || 'Request failed');
     }
     return data;
   }
@@ -130,8 +120,11 @@ class App {
       try { this.ws.close(); } catch(e) {}
     }
 
+    const wsHost = (window.location.port === '5173' || window.location.port === '4173')
+      ? `${window.location.hostname || 'localhost'}:3001`
+      : window.location.host;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const wsUrl = `${protocol}//${wsHost}/ws`;
 
     this.connectionStatus = 'CONNECTING';
     this.updateTelemetryBadge();
