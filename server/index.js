@@ -1,5 +1,7 @@
 import express from 'express';
 import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import cors from 'cors';
 import authRoutes from './routes/auth.js';
@@ -7,6 +9,10 @@ import stocksRoutes from './routes/stocks.js';
 import watchlistsRoutes from './routes/watchlists.js';
 import { marketFeed } from './services/marketFeed.js';
 import db from './db/index.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.resolve(__dirname, '../dist');
 
 const app = express();
 const server = http.createServer(app);
@@ -38,6 +44,23 @@ app.get('/api/health', (req, res) => {
       activeSubscribers: marketFeed.subscribers.size,
       sequenceId: marketFeed.sequenceId
     }
+  });
+});
+
+
+// Serve compiled frontend assets if available
+app.use(express.static(distPath));
+
+// API 404 handler for unmatched /api routes
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `API route ${req.method} ${req.url} not found` });
+});
+
+// SPA fallback to index.html for all non-API web routes
+app.use((req, res, next) => {
+  if (req.method !== 'GET') return next();
+  res.sendFile(path.join(distPath, 'index.html'), (err) => {
+    if (err) next();
   });
 });
 
