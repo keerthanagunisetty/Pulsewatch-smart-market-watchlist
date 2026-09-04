@@ -1,170 +1,210 @@
-# 🏥 Hospital Bed Availability Tracker (PulseBed)
+# ⚡ PulseWatch — Smart Market Watchlist Platform
+> **Groww Code Challenge 2026** | Intelligent Financial Telemetry & Real-Time Watchlist Engine
 
-[![Vercel Deployment](https://img.shields.io/badge/Vercel-Deployed-brightgreen)](https://hospital-bed-availability-tracker.vercel.app)
-
-A cloud-based real-time hospital bed management and patient booking web application built for the **Cloud Applications** coursework. Designed to allow hospital staff and administrators to track, book, and manage bed availability and pricing structures across medical facilities and departments in real-time.
-
----
-
-## 🚀 Key Features
-
-- **Real-Time Synchronisation**: Uses Firebase Firestore WebSocket listeners (`onSnapshot`) to update dashboards instantly across all client sessions without page refreshes.
-- **Patient Admission & Bed Booking**:
-  - Grid-based **Rooms & Beds visualizer** showing available (green) vs occupied (red) beds.
-  - Interactive bed-slots clicking prompts booking details (Name, Patient ID, Age, Gender, Phone, Emergency Contact).
-  - Admissions registry table with instant search (Name/ID) and status filters.
-- **Dynamic Cost & Billing Calculator**:
-  - Standardized rates: **General Ward** (₹1,500/day), **Semi-Private** (₹2,500/day), **Private Room** (₹4,000/day), **ICU** (₹8,000/day), **Emergency** (₹5,000/day).
-  - Live cost previews: `Estimated Cost = Days * Daily tariff`.
-  - Recalculates final stay billing and updates inventory count automatically upon patient discharge.
-- **Role-Based Access**:
-  - **Public Visitors**: Can view real-time general hospital stats, visual rooms/beds grids, search, and filter. Private patient records and revenue cashflows are strictly hidden.
-  - **Authenticated Admins**: Staff logged in via Firebase Authentication get write permissions to add hospitals, book patient admissions, discharge patients, and access revenue reports.
-- **Interactive Visual Dashboard**: Powered by Chart.js featuring:
-  - Bed Status Distribution Doughnut Chart.
-  - Department Breakdown Bar Chart.
-  - Revenue yields by Medical Department.
-  - Revenue yields by Room Type.
+[![Live Telemetry](https://img.shields.io/badge/Telemetry-500ms%20Live%20Streaming-059669.svg)](#)
+[![Backend](https://img.shields.io/badge/Backend-Node.js%20%2B%20Express-4f46e5.svg)](#)
+[![WebSocket](https://img.shields.io/badge/WebSocket-Native%20ws-7c3aed.svg)](#)
+[![Database](https://img.shields.io/badge/Database-SQLite%20(Node%2022%20DatabaseSync)-0ea5e9.svg)](#)
+[![License](https://img.shields.io/badge/License-MIT-gray.svg)](#)
 
 ---
 
-## 🏗️ 1. Project Architecture
+## 🎯 Executive Overview
 
-The application is built with a modular, lightweight Single-Page Application (SPA) design:
+**PulseWatch** is a next-generation smart market watchlist platform designed for modern Indian equity traders and research analysts. Built to fulfill the **Groww Code Challenge 2026**, PulseWatch moves beyond static ticker lists by streaming live ticks at **500ms intervals**, calculating **statistical volume z-scores**, detecting **sector alpha decoupling**, and tracking benchmark divergence across **NIFTY 50**, **BSE SENSEX**, **NIFTY BANK**, and sectoral indices.
+
+---
+
+## 🚀 Key Differentiating Features
+
+### 1. ⚡ High-Frequency 500ms Live Telemetry
+- Sub-second market updates broadcast over high-performance WebSockets (`ws://localhost:3001/ws`).
+- Visual micro-flashes (green for upward tick, red for downward tick) with zero full-page repaints.
+- In-memory delta compression transmitting only mutated symbols to reduce client network consumption.
+
+### 2. 🧠 Intelligent Anomaly & Catalyst Detection Engine
+- **Volume Surge Detection**: Flags any stock whose volume spikes above **+2.0σ** (Z-Score) relative to its 20-day trailing baseline with an actionable lightning tag (`⚡ Surge`).
+- **Sector Decoupling**: Identifies divergence where an equity is outperforming or lagging its sectoral benchmark by >1.5%.
+- **Earnings Proximity**: Highlights stocks entering a 7-day catalyst window before quarterly disclosures.
+- **Dynamic Contextual AI Explanation**: Automated summary sentences for each stock explaining current price movement drivers.
+
+### 3. 🔍 Smart Stock Search & Dynamic Addition (NSE & BSE)
+- Real-time search with fuzzy typo-tolerance and alias resolution:
+  - `kalyan jewel`, `kaluyna jewel`, `kalyankjil` &rarr; automatically maps to **`KALYANKJIL.NS`** (Kalyan Jewellers India Limited).
+  - `sensex`, `bse sensex`, `sensex30` &rarr; automatically maps to **`^BSESN`** (S&P BSE SENSEX).
+  - Also supports `RELIANCE`, `TCS`, `INFY`, `HDFCBANK`, `TATAMOTORS`, `HUDCO`, and any valid NSE/BSE listed ticker.
+- Direct Yahoo Finance live quote sync fetching real-time market cap, P/E, 52-week high/low, and VWAP.
+
+### 4. 📋 Advanced Multi-Watchlist Management
+- Create, rename, delete, and switch between customized thematic watchlists (e.g. *High Momentum & Alpha*, *Core Bluechips*, *Tech & Growth Radar*).
+- Persistent investment notes and custom tags (`#swing`, `#breakout`, `#longterm`) persisted in SQLite.
+- Fast multi-criteria quick filters: **All Stocks**, **Anomalies Only**, **Volume Surges**, **Earnings Proximity**, **Top Gainers**, **Top Losers**.
+
+### 5. 🧪 Evaluator & Judge Toolkit
+- **👩‍💻 1-Click Judge Demo Login**: Instant login as *Priya Sharma (Lead Quant / Pro Investor)* with 3 pre-seeded watchlists, notes, and tags.
+- **Chaos Simulator Widget**:
+  - `⚡ Inject Volume Surge`: Artificially forces a 3.4σ spike on `INFY` to test live anomaly pill reactions.
+  - `📉 Flash Pullback`: Injects sector-wide 1.5% dips into Banking & IT.
+  - `🔌 Network Drop`: Tests graceful offline degradation, local cached rendering, and telemetry warning badges.
+
+---
+
+## 🏗️ Project Architecture
 
 ```
-pulsebed-app/
-├── index.html                # Main single-page web interface & layout
-├── firestore.rules           # Security rules for Cloud Firestore
-├── package.json              # App dependencies & scripts
-├── src/
-│   ├── style.css             # Healthcare UI design tokens, visual room layout & responsive CSS
-│   ├── firebase-config.js    # Firebase Web App SDK initialization & reactive fallback
-│   ├── auth.js               # Firebase Auth module (login, logout, RBAC state UI)
-│   ├── hospitalService.js    # Firestore CRUD, visual rooms generator & booking handlers
-│   ├── dashboard.js          # Chart.js analytics engine & metrics calculator
-│   └── main.js               # Application router, form validation, and event handling
-└── dist/                     # Production build bundle (generated by Vite)
-```
-
----
-
-## ☁️ 2. Firebase Services Used
-
-1. **Firebase Authentication**: Email and password authentication protecting admin endpoints.
-2. **Firebase Firestore**: Cloud NoSQL database storing the `hospitals` and `patientBookings` collections with real-time sync.
-3. **Firebase Hosting**: Production cloud hosting with HTTPS SSL.
-
----
-
-## 🗄️ 3. Firestore Database Structure
-
-**Collection Name**: `hospitals`
-```json
-{
-  "hospitalName": "Apollo Hospital",
-  "location": "Downtown Central, Jubilee Hills",
-  "department": "ICU",
-  "totalBeds": 120,
-  "occupiedBeds": 102,
-  "availableBeds": 18,
-  "status": "Limited",
-  "updatedAt": "2026-08-13T08:20:00.000Z"
-}
-```
-
-**Collection Name**: `patientBookings`
-```json
-{
-  "patientName": "John Doe",
-  "patientId": "PAT-93021",
-  "age": 45,
-  "gender": "Male",
-  "phone": "+91 9876543210",
-  "emergencyContact": "Spouse, +91 9876543211",
-  "hospitalId": "local_hosp_1_1720000000000",
-  "hospitalName": "Apollo Hospital",
-  "department": "ICU",
-  "roomType": "ICU",
-  "roomNumber": "101",
-  "bedNumber": "101-A",
-  "costPerDay": 8000,
-  "admissionDate": "2026-08-13",
-  "expectedDischargeDate": "2026-08-18",
-  "numberOfDays": 5,
-  "estimatedCost": 40000,
-  "bookingStatus": "Admitted",
-  "createdAt": "2026-08-13T08:20:00.000Z"
-}
+Pulsewatch-smart-market-watchlist/
+├── index.html                 # PulseWatch single-page application entrypoint
+├── package.json               # Full project dependencies (Express, WS, Vite, Chart.js)
+├── vite.config.js             # Vite development server configuration & backend proxy
+├── README.md                  # Complete technical & evaluation documentation
+├── .gitignore                 # Node modules & build artifacts ignore
+│
+├── src/                       # Frontend Single-Page Application
+│   ├── main.js                # Core telemetry client, WebSocket listener, UI state machine
+│   └── style.css              # Custom responsive dark/light styling & micro-animations
+│
+└── server/                    # Real-Time Telemetry & Backend API Engine
+    ├── index.js               # Express REST Server & WebSocket Server (:3001)
+    ├── check_live.js          # Live ticker feed verification utility
+    ├── test_e2e.js            # End-to-end integration test runner
+    ├── db/
+    │   └── index.js           # SQLite Native Engine (DatabaseSync) & master stock seeds
+    ├── services/
+    │   └── marketFeed.js      # 500ms ticker feed generator, anomaly engine & Yahoo sync
+    └── routes/
+        ├── auth.js            # JWT auth, user registration, and 1-Click Judge Demo login
+        ├── stocks.js          # Master stocks, indices, chaos injection, dynamic stock add
+        └── watchlists.js      # Multi-watchlist CRUD, reordering, custom notes & tags
 ```
 
 ---
 
-## 🔐 4. Authentication & Security Rules Flow
+## 🗄️ Database Schema (SQLite Native)
 
-Configuration details for `firestore.rules`:
+Built on Node.js 22's native `DatabaseSync` engine for zero external C++ native build dependencies:
 
-```rules
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Hospitals: Public read access, admin writes
-    match /hospitals/{hospitalId} {
-      allow read: if true;
-      allow create, update, delete: if request.auth != null;
-    }
-    
-    // Patient Bookings: Only authenticated admins can read/write patient details
-    match /patientBookings/{bookingId} {
-      allow read, write, create, update, delete: if request.auth != null;
-    }
-  }
-}
+```sql
+-- Users & Investor Profiles
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  avatar_initials TEXT DEFAULT 'PS',
+  experience_level TEXT,
+  preferred_sectors TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Master Stock Universe
+CREATE TABLE stocks_master (
+  symbol TEXT PRIMARY KEY,
+  company_name TEXT NOT NULL,
+  sector TEXT NOT NULL,
+  industry TEXT,
+  market_cap_cr REAL,
+  base_price REAL NOT NULL,
+  pe_ratio REAL,
+  pb_ratio REAL,
+  dividend_yield REAL,
+  roe_pct REAL,
+  debt_to_equity REAL,
+  analyst_buy_pct INTEGER,
+  analyst_hold_pct INTEGER,
+  analyst_sell_pct INTEGER,
+  fifty_two_week_high REAL,
+  fifty_two_week_low REAL,
+  avg_volume_20d INTEGER,
+  next_earnings_date TEXT,
+  sector_benchmark TEXT,
+  beta REAL
+);
+
+-- User Watchlists
+CREATE TABLE watchlists (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  is_default INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Watchlist Items & Analyst Notes
+CREATE TABLE watchlist_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  watchlist_id INTEGER NOT NULL,
+  symbol TEXT NOT NULL,
+  sort_order INTEGER DEFAULT 0,
+  notes TEXT DEFAULT '',
+  custom_tags TEXT DEFAULT '[]',
+  alert_price_high REAL,
+  alert_price_low REAL,
+  added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (watchlist_id) REFERENCES watchlists(id) ON DELETE CASCADE,
+  FOREIGN KEY (symbol) REFERENCES stocks_master(symbol) ON DELETE CASCADE,
+  UNIQUE(watchlist_id, symbol)
+);
 ```
 
 ---
 
-## ⏱️ 5. 5-Minute Demonstration Guide
+## 📡 REST API & WebSocket Reference
 
-Follow this standard flow during project presentation:
+### Authentication
+- `POST /api/auth/register` &mdash; Create a new investor profile with experience level and sector chips.
+- `POST /api/auth/login` &mdash; Authenticate with email and password.
+- `GET /api/auth/demo` &mdash; Instant 1-Click evaluator access as Priya Sharma.
 
-1. **Public View**: Open the app unauthenticated. Show dashboard metrics, visual rooms/beds layouts, search, and filters. Point out that patient logs and revenue summaries are hidden.
-2. **Admin Sign In**: Click **Admin Login** and log in with email: `admin@hospital.org` and password: `admin123`.
-3. **Interactive Booking**: 
-   - Navigate to the **Rooms & Beds** page.
-   - Click an available bed slot (green button) e.g. `Room 101 - Bed 101-A`.
-   - Observe redirection to **Book Bed** page with allocation details pre-populated.
-4. **Dates and Cost Calculation**: 
-   - Fill in patient details.
-   - Adjust admission/expected discharge dates to a 5-day span.
-   - Observe live calculations update instantly ($\text{5 days} \times \text{tariff rate} = \text{total cost}$).
-   - Submit booking. Verify success toast.
-5. **Real-time Inventory Shift**:
-   - Verify that on the **Rooms & Beds** page, that specific bed is now red (**Occupied**).
-   - Go to **Hospitals & Beds** and observe that occupied beds increased by 1 and available beds decreased by 1.
-   - The dashboard updates charts and revenue stats instantly.
-6. **Patient Admissions Registry**:
-   - Navigate to **Patient Admissions**. Verify that the new patient shows up. Search by Patient ID to narrow down.
-7. **Discharge Process**:
-   - Click **Discharge** on the patient row.
-   - A modal displays. Pick a discharge date. Observe stay recalculations and billing summaries.
-   - Click **Process Discharge**. Verify bed returns to **Available** and hospital totals restore.
-8. **Logout**: Return to guest mode.
+### Stocks & Market Telemetry
+- `GET /api/stocks` &mdash; Retrieve master stocks with current prices, VWAP, and active anomalies.
+- `GET /api/stocks/indices` &mdash; Retrieve live market benchmarks (`NIFTY 50`, `BSE SENSEX`, `NIFTY BANK`, etc.).
+- `GET /api/stocks/signals` &mdash; Filter active market anomalies (volume surges, earnings proximity).
+- `GET /api/stocks/:symbol` &mdash; Full stock breakdown including relative alpha and analyst sentiment.
+- `POST /api/stocks/add` &mdash; Dynamically resolve and register any NSE/BSE stock or index with live data.
+
+### Watchlists
+- `GET /api/watchlists` &mdash; Fetch all watchlists for authenticated user with live telemetry merged.
+- `POST /api/watchlists` &mdash; Create a new watchlist.
+- `POST /api/watchlists/:id/items` &mdash; Add a stock to a watchlist.
+- `DELETE /api/watchlists/:id/items/:symbol` &mdash; Remove a stock from a watchlist.
+- `PUT /api/watchlists/:id/items/:symbol/notes` &mdash; Save custom research notes and tags.
+- `PUT /api/watchlists/:id/reorder` &mdash; Persist custom item display order.
+
+### Chaos Simulation (Judge Testing)
+- `POST /api/stocks/simulation/chaos` &mdash; Triggers volume spikes, market dips, or offline delay toggling.
+
+### WebSocket Feed
+- **Endpoint**: `ws://localhost:3001/ws`
+- **Initial Handshake**: Emits `INITIAL_SNAPSHOT` with full indices and stock data.
+- **Tick Stream**: Emits `MARKET_TICK` every 500ms containing only updated tickers and latency markers.
 
 ---
 
-## 💻 6. How to Run Locally
+## ⚡ Quickstart Guide (Run Locally)
 
-### Prerequisites
-- Node.js installed (v18+ recommended)
-
-### Step 1: Install Dependencies
+### 1. Clone the Repository
 ```bash
-cmd /c npm install
+git clone https://github.com/keerthanagunisetty/Pulsewatch-smart-market-watchlist.git
+cd Pulsewatch-smart-market-watchlist
 ```
 
-### Step 2: Start Development Server
+### 2. Install Dependencies
 ```bash
-cmd /c npm run dev
+npm install
 ```
-Open your browser at `http://localhost:5173`.
+
+### 3. Start Backend & Real-Time Feed (:3001)
+```bash
+node server/index.js
+```
+
+### 4. In a New Terminal, Start Frontend (:5173)
+```bash
+npm run dev
+```
+
+### 5. Open in Browser
+Navigate to **`http://localhost:5173`**
+- Click **"🚀 1-Click Judge Demo Login"** to start exploring immediately!
